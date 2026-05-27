@@ -2888,7 +2888,28 @@ function EdtPage({D,set}){
   const [tab,setTab]=useState("planning");const [showAdd,setShowAdd]=useState(false);const [showImport,setShowImport]=useState(false);
   const [form,setForm]=useState({jour:"Samedi",heureDebut:"09:00",heureFin:"11:00",classId:"",teacherIds:[],salle:"SALLE 1"});
   const jours=["Mercredi","Samedi","Dimanche"];const salles=["SALLE 1","SALLE 2","SALLE 3","SALLE 4","SALLE 5","SALLE 6"];
-  const sorted=[...edt].sort((a,b)=>{const jo={"Mercredi":0,"Samedi":1,"Dimanche":2};return(jo[a.jour]||0)-(jo[b.jour]||0)||(a.heureDebut||"").localeCompare(b.heureDebut||"")});
+
+  // Classes accessibles selon le rôle
+  const myEdtClassIds=useMemo(()=>{
+    if(user.role!=="enseignant"||!user.teacherId)return null;// null = tout voir (admin/secretariat)
+    const tid=user.teacherId;
+    const t=teachers.find(x=>x.id===tid);
+    const ids=new Set([
+      ...(t?.classIds||[]),
+      ...classes.filter(c=>(c.teacherIds||[]).includes(tid)).map(c=>c.id)
+    ]);
+    // Remplaçant aujourd'hui
+    const todayStr2=today();
+    ((D.teacherAbsences)||[]).filter(a=>a.replacedById===tid&&a.date===todayStr2).forEach(a=>{
+      const at=teachers.find(x=>x.id===a.teacherId);
+      [...(at?.classIds||[]),...classes.filter(c=>(c.teacherIds||[]).includes(a.teacherId)).map(c=>c.id)].forEach(cid=>ids.add(cid));
+    });
+    return ids;
+  },[user,teachers,classes,D.teacherAbsences]);
+  const availEdtClasses=myEdtClassIds?classes.filter(c=>myEdtClassIds.has(c.id)):classes;
+
+  const allSorted=[...edt].sort((a,b)=>{const jo={"Mercredi":0,"Samedi":1,"Dimanche":2};return(jo[a.jour]||0)-(jo[b.jour]||0)||(a.heureDebut||"").localeCompare(b.heureDebut||"")});
+  const sorted=myEdtClassIds?allSorted.filter(s=>myEdtClassIds.has(s.classId)):allSorted;
   const [yearStart,setYearStart]=useState("2025-09-01");const [yearEnd,setYearEnd]=useState("2026-06-30");
   const [vacances,setVacances]=useState(D.vacances||[]);// [{debut,fin,label}]
   const [showVac,setShowVac]=useState(false);const [vacForm,setVacForm]=useState({debut:"",fin:"",label:""});
@@ -2929,9 +2950,10 @@ function EdtPage({D,set}){
   function getSlotStudents(slot){
     return enrollments.filter(e=>e.classId===slot.classId&&e.status==="Inscription acceptée").map(e=>students.find(s=>s.id===e.studentId)).filter(Boolean)}
 
+  if(user.role==="enseignant"&&user.teacherId&&availEdtClasses.length===0)return <div className="space-y-5"><h2 className="text-2xl font-bold">Emploi du temps</h2><div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center"><p className="text-2xl mb-2">📅</p><p className="font-semibold text-amber-800">Aucune classe affectée</p><p className="text-sm text-amber-600 mt-1">Contactez la direction pour être affecté à une classe avant de voir votre emploi du temps.</p></div></div>;
   return <div className="space-y-5">
     <div className="flex items-center justify-between"><h2 className="text-2xl font-bold">Emploi du temps</h2>
-      <div className="flex gap-2"><Btn variant="secondary" onClick={()=>setShowImport(true)}>📥 Import Excel</Btn><Btn onClick={()=>setShowAdd(true)}>＋ Créneau</Btn></div></div>
+      {user.role!=="enseignant"&&<div className="flex gap-2"><Btn variant="secondary" onClick={()=>setShowImport(true)}>📥 Import Excel</Btn><Btn onClick={()=>setShowAdd(true)}>＋ Créneau</Btn></div>}</div>
     <Tabs tabs={[{id:"planning",label:"Planning"},{id:"jour",label:"Par jour"},{id:"annee",label:"Annee scolaire"},{id:"vacances",label:`Vacances (${vacances.length})`}]} active={tab} onChange={setTab}/>
 
     {tab==="annee"&&<div className="space-y-4 bg-white rounded-xl border shadow-sm p-5">
@@ -2940,7 +2962,7 @@ function EdtPage({D,set}){
       <div className="grid grid-cols-2 gap-3"><Inp label="Debut annee" type="date" value={yearStart} onChange={e=>setYearStart(e.target.value)}/><Inp label="Fin annee" type="date" value={yearEnd} onChange={e=>setYearEnd(e.target.value)}/></div>
       {vacances.length>0&&<p className="text-xs text-orange-600">{vacances.length} periode(s) de vacances exclues</p>}
       <p className="text-xs font-medium text-gray-700 mt-2">Creneaux a dupliquer :</p>
-      <div className="space-y-1">{sorted.filter(s=>!s.date).map(s=>{const cl=classes.find(c=>c.id===s.classId);
+      <div className="space-y-1">{sorted.filter(s=>!s.date).map(s=>{const cl=availEdtClasses.find(c=>c.id===s.classId);
         return <div key={s.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
           <span>{s.jour} {s.heureDebut}-{s.heureFin} — {cl?.label||"--"} ({s.salle})</span>
           <Btn size="sm" onClick={()=>dupliquerAnnee(s)}>Generer dates</Btn></div>})}
@@ -3005,7 +3027,7 @@ function EdtPage({D,set}){
           <Sel label="Jour" value={form.jour} onChange={e=>setForm({...form,jour:e.target.value})} options={jours.map(j=>({value:j,label:j}))}/>
           <Inp label="Heure debut" type="time" value={form.heureDebut} onChange={e=>setForm({...form,heureDebut:e.target.value})}/>
           <Inp label="Heure fin" type="time" value={form.heureFin} onChange={e=>setForm({...form,heureFin:e.target.value})}/></div>
-        <Sel label="Classe" value={form.classId} onChange={e=>setForm({...form,classId:e.target.value})} options={[{value:"",label:"-- Choisir --"},...classes.map(c=>({value:c.id,label:c.label}))]}/>
+        <Sel label="Classe" value={form.classId} onChange={e=>setForm({...form,classId:e.target.value})} options={[{value:"",label:"-- Choisir --"},...availEdtClasses.map(c=>({value:c.id,label:c.label}))]}/>
         <Sel label="Salle" value={form.salle} onChange={e=>setForm({...form,salle:e.target.value})} options={salles.map(s=>({value:s,label:s}))}/>
         <div><label className="block text-xs font-medium text-gray-600 mb-1">Enseignant(s)</label>
           <div className="flex flex-wrap gap-1">{teachers.map(t=>{const sel=(form.teacherIds||[]).includes(t.id);
