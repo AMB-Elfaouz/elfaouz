@@ -674,7 +674,7 @@ async function resolveUserProfile(fbUser, remoteData){
   );
 
   if(acc){
-    return{name:acc.name,role:acc.role,login:acc.login||fbUser.email,email:fbUser.email,uid:fbUser.uid};
+    return{name:acc.name,role:acc.role,login:acc.login||fbUser.email,email:fbUser.email,uid:fbUser.uid,teacherId:acc.teacherId||""};
   }
 
   // Aucun profil : créer un compte minimal dans Firestore pour que les autres appareils
@@ -1950,7 +1950,7 @@ function AppelTab({D,set}){
     const filtered=edt.filter(s=>{
       if(s.date)return s.date===appelDate;
       return s.jour===selectedJour});
-    if(user.role==="enseignant"&&user.teacherId){
+    if(user.role==="enseignant"){const _chk=user.teacherId||"";if(!_chk)return[];
       const tid=user.teacherId;
       const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===tid&&a.date===appelDate);
       const replacingTeacherIds=new Set(replacingAbsences.map(a=>a.teacherId));
@@ -1965,7 +1965,7 @@ function AppelTab({D,set}){
     }
     return filtered},[edt,user,selectedJour,appelDate,D.teacherAbsences,teachers,classes]);
   const allSlots=useMemo(()=>{
-    if(user.role==="enseignant"&&user.teacherId){
+    if(user.role==="enseignant"){const _chk=user.teacherId||"";if(!_chk)return[];
       const tid=user.teacherId;
       const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===tid&&a.date===today());
       const replacingTeacherIds=new Set(replacingAbsences.map(a=>a.teacherId));
@@ -1982,7 +1982,7 @@ function AppelTab({D,set}){
   const displaySlots=showAllDays?allSlots:availSlots;
   // Classes affectées à cet enseignant (pour fallback sans EDT)
   const myAssignedClasses=useMemo(()=>{
-    if(user.role==="enseignant"&&user.teacherId){
+    if(user.role==="enseignant"){const _chk=user.teacherId||"";if(!_chk)return[];
       const tid=user.teacherId;
       const t=teachers.find(t=>t.id===tid);
       // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
@@ -2334,7 +2334,7 @@ function NoteSaisie({D,set}){
     :trimDates.t2&&todayStr>=trimDates.t2.debut&&todayStr<=trimDates.t2.fin?"T2 ("+trimDates.t2.debut+" au "+trimDates.t2.fin+")"
     :trimDates.t3&&todayStr>=trimDates.t3.debut&&todayStr<=trimDates.t3.fin?"T3 ("+trimDates.t3.debut+" au "+trimDates.t3.fin+")":"Hors trimestre";
   const availClasses=useMemo(()=>{
-    if(user.role==="enseignant"&&user.teacherId){
+    if(user.role==="enseignant"){const _chk=user.teacherId||"";if(!_chk)return[];
       const tid=user.teacherId;
       const t=teachers.find(t=>t.id===tid);
       // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
@@ -2457,7 +2457,7 @@ function NoteImport({D,set}){
   const [text,setText]=useState("");const [preview,setPreview]=useState([]);
   const {subjects,user,teachers}=D;const [selSubject,setSelSubject]=useState("");const [selClass,setSelClass]=useState("");const [noteSur,setNoteSur]=useState(20);const [noteType,setNoteType]=useState("Grand contrôle");
   const availClasses=useMemo(()=>{
-    if(user.role==="enseignant"&&user.teacherId){
+    if(user.role==="enseignant"){const _chk=user.teacherId||"";if(!_chk)return[];
       const tid=user.teacherId;
       const t=teachers.find(t=>t.id===tid);
       // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
@@ -2539,7 +2539,7 @@ function Bulletins({D,set}){
   const trimFin=trimDates[trimKey]?.fin||"";
   function isInTrim(dateStr){if(!trimDebut||!trimFin||!dateStr)return true;return dateStr>=trimDebut&&dateStr<=trimFin}
   const availClasses=useMemo(()=>{
-    if(user.role==="enseignant"&&user.teacherId){
+    if(user.role==="enseignant"){const _chk=user.teacherId||"";if(!_chk)return[];
       const tid=user.teacherId;
       const t=teachers.find(t=>t.id===tid);
       // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
@@ -2891,7 +2891,8 @@ function EdtPage({D,set}){
 
   // Classes accessibles selon le rôle
   const myEdtClassIds=useMemo(()=>{
-    if(user.role!=="enseignant"||!user.teacherId)return null;// null = tout voir (admin/secretariat)
+    if(user.role!=="enseignant")return null;// null = tout voir (admin/secretariat)
+    if(!user.teacherId)return new Set();// enseignant sans affectation = aucune classe
     const tid=user.teacherId;
     const t=teachers.find(x=>x.id===tid);
     const ids=new Set([
