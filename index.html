@@ -1951,36 +1951,49 @@ function AppelTab({D,set}){
       if(s.date)return s.date===appelDate;
       return s.jour===selectedJour});
     if(user.role==="enseignant"&&user.teacherId){
-      // Get classes of teachers this user is replacing today
-      const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===user.teacherId&&a.date===appelDate);
+      const tid=user.teacherId;
+      const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===tid&&a.date===appelDate);
       const replacingTeacherIds=new Set(replacingAbsences.map(a=>a.teacherId));
       const absentTeachersClassIds=new Set();
-      replacingAbsences.forEach(a=>{const t=teachers.find(x=>x.id===a.teacherId);(t?.classIds||[]).forEach(cid=>absentTeachersClassIds.add(cid));});
-      return filtered.filter(s=>(s.teacherIds||[]).includes(user.teacherId)||
-        (s.teacherIds||[]).some(tid=>replacingTeacherIds.has(tid))||
+      replacingAbsences.forEach(a=>{const rt=teachers.find(x=>x.id===a.teacherId);
+        [...(rt?.classIds||[]),...classes.filter(c=>(c.teacherIds||[]).includes(a.teacherId)).map(c=>c.id)]
+        .forEach(cid=>absentTeachersClassIds.add(cid));});
+      // EDT filtre par s.teacherIds (EDT) OU classe affectée au remplaçant
+      return filtered.filter(s=>(s.teacherIds||[]).includes(tid)||
+        (s.teacherIds||[]).some(rtid=>replacingTeacherIds.has(rtid))||
         absentTeachersClassIds.has(s.classId));
     }
-    return filtered},[edt,user,selectedJour,appelDate,D.teacherAbsences,teachers]);
+    return filtered},[edt,user,selectedJour,appelDate,D.teacherAbsences,teachers,classes]);
   const allSlots=useMemo(()=>{
     if(user.role==="enseignant"&&user.teacherId){
-      const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===user.teacherId&&a.date===today());
+      const tid=user.teacherId;
+      const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===tid&&a.date===today());
       const replacingTeacherIds=new Set(replacingAbsences.map(a=>a.teacherId));
       const absentTeachersClassIds=new Set();
-      replacingAbsences.forEach(a=>{const t=teachers.find(x=>x.id===a.teacherId);(t?.classIds||[]).forEach(cid=>absentTeachersClassIds.add(cid));});
-      return edt.filter(s=>(s.teacherIds||[]).includes(user.teacherId)||
-        (s.teacherIds||[]).some(tid=>replacingTeacherIds.has(tid))||
+      replacingAbsences.forEach(a=>{const rt=teachers.find(x=>x.id===a.teacherId);
+        [...(rt?.classIds||[]),...classes.filter(c=>(c.teacherIds||[]).includes(a.teacherId)).map(c=>c.id)]
+        .forEach(cid=>absentTeachersClassIds.add(cid));});
+      return edt.filter(s=>(s.teacherIds||[]).includes(tid)||
+        (s.teacherIds||[]).some(rtid=>replacingTeacherIds.has(rtid))||
         absentTeachersClassIds.has(s.classId));
     }
-    return edt},[edt,user,D.teacherAbsences,teachers]);
+    return edt},[edt,user,D.teacherAbsences,teachers,classes]);
   const [showAllDays,setShowAllDays]=useState(false);
   const displaySlots=showAllDays?allSlots:availSlots;
   // Classes affectées à cet enseignant (pour fallback sans EDT)
   const myAssignedClasses=useMemo(()=>{
     if(user.role==="enseignant"&&user.teacherId){
-      const t=teachers.find(t=>t.id===user.teacherId);
-      const myClassIds=new Set(t?.classIds||[]);
-      const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===user.teacherId&&a.date===appelDate);
-      replacingAbsences.forEach(a=>{const rt=teachers.find(x=>x.id===a.teacherId);(rt?.classIds||[]).forEach(cid=>myClassIds.add(cid));});
+      const tid=user.teacherId;
+      const t=teachers.find(t=>t.id===tid);
+      // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
+      const myClassIds=new Set([
+        ...(t?.classIds||[]),
+        ...classes.filter(c=>(c.teacherIds||[]).includes(tid)).map(c=>c.id)
+      ]);
+      const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===tid&&a.date===appelDate);
+      replacingAbsences.forEach(a=>{const rt=teachers.find(x=>x.id===a.teacherId);
+        [...(rt?.classIds||[]),...classes.filter(c=>(c.teacherIds||[]).includes(a.teacherId)).map(c=>c.id)]
+        .forEach(cid=>myClassIds.add(cid));});
       return classes.filter(c=>myClassIds.has(c.id));
     }
     return classes},[classes,teachers,user,appelDate,teacherAbsences]);
@@ -2322,15 +2335,18 @@ function NoteSaisie({D,set}){
     :trimDates.t3&&todayStr>=trimDates.t3.debut&&todayStr<=trimDates.t3.fin?"T3 ("+trimDates.t3.debut+" au "+trimDates.t3.fin+")":"Hors trimestre";
   const availClasses=useMemo(()=>{
     if(user.role==="enseignant"&&user.teacherId){
-      const t=teachers.find(t=>t.id===user.teacherId);
-      const myClassIds=new Set(t?.classIds||[]);
-      // Also add classes from teachers this user is replacing today
+      const tid=user.teacherId;
+      const t=teachers.find(t=>t.id===tid);
+      // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
+      const myClassIds=new Set([
+        ...(t?.classIds||[]),
+        ...classes.filter(c=>(c.teacherIds||[]).includes(tid)).map(c=>c.id)
+      ]);
       const todayStr2=today();
-      const replacingAbsences=((D.teacherAbsences)||[]).filter(a=>a.replacedById===user.teacherId&&a.date===todayStr2);
-      replacingAbsences.forEach(a=>{
-        const absentTeacher=teachers.find(x=>x.id===a.teacherId);
-        (absentTeacher?.classIds||[]).forEach(cid=>myClassIds.add(cid));
-      });
+      const replacingAbsences=((D.teacherAbsences)||[]).filter(a=>a.replacedById===tid&&a.date===todayStr2);
+      replacingAbsences.forEach(a=>{const absentTeacher=teachers.find(x=>x.id===a.teacherId);
+        [...(absentTeacher?.classIds||[]),...classes.filter(c=>(c.teacherIds||[]).includes(a.teacherId)).map(c=>c.id)]
+        .forEach(cid=>myClassIds.add(cid));});
       return classes.filter(c=>myClassIds.has(c.id));
     }
     return classes},[classes,teachers,user,D.teacherAbsences]);
@@ -2442,10 +2458,17 @@ function NoteImport({D,set}){
   const {subjects,user,teachers}=D;const [selSubject,setSelSubject]=useState("");const [selClass,setSelClass]=useState("");const [noteSur,setNoteSur]=useState(20);const [noteType,setNoteType]=useState("Grand contrôle");
   const availClasses=useMemo(()=>{
     if(user.role==="enseignant"&&user.teacherId){
-      const t=teachers.find(t=>t.id===user.teacherId);
-      const myClassIds=new Set(t?.classIds||[]);
-      const replacingAbsences=((D.teacherAbsences)||[]).filter(a=>a.replacedById===user.teacherId&&a.date===today());
-      replacingAbsences.forEach(a=>{const at=teachers.find(x=>x.id===a.teacherId);(at?.classIds||[]).forEach(cid=>myClassIds.add(cid));});
+      const tid=user.teacherId;
+      const t=teachers.find(t=>t.id===tid);
+      // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
+      const myClassIds=new Set([
+        ...(t?.classIds||[]),
+        ...D.classes.filter(c=>(c.teacherIds||[]).includes(tid)).map(c=>c.id)
+      ]);
+      const replacingAbsences=((D.teacherAbsences)||[]).filter(a=>a.replacedById===tid&&a.date===today());
+      replacingAbsences.forEach(a=>{const at=teachers.find(x=>x.id===a.teacherId);
+        [...(at?.classIds||[]),...D.classes.filter(c=>(c.teacherIds||[]).includes(a.teacherId)).map(c=>c.id)]
+        .forEach(cid=>myClassIds.add(cid));});
       return D.classes.filter(c=>myClassIds.has(c.id));
     }
     return D.classes},[D.classes,teachers,user,D.teacherAbsences]);
@@ -2517,15 +2540,18 @@ function Bulletins({D,set}){
   function isInTrim(dateStr){if(!trimDebut||!trimFin||!dateStr)return true;return dateStr>=trimDebut&&dateStr<=trimFin}
   const availClasses=useMemo(()=>{
     if(user.role==="enseignant"&&user.teacherId){
-      const t=teachers.find(t=>t.id===user.teacherId);
-      const myClassIds=new Set(t?.classIds||[]);
-      // Also add classes from teachers this user is replacing today
+      const tid=user.teacherId;
+      const t=teachers.find(t=>t.id===tid);
+      // Double source : teacher.classIds (menu Enseignants) + class.teacherIds (menu Classes)
+      const myClassIds=new Set([
+        ...(t?.classIds||[]),
+        ...classes.filter(c=>(c.teacherIds||[]).includes(tid)).map(c=>c.id)
+      ]);
       const todayStr2=today();
-      const replacingAbsences=((D.teacherAbsences)||[]).filter(a=>a.replacedById===user.teacherId&&a.date===todayStr2);
-      replacingAbsences.forEach(a=>{
-        const absentTeacher=teachers.find(x=>x.id===a.teacherId);
-        (absentTeacher?.classIds||[]).forEach(cid=>myClassIds.add(cid));
-      });
+      const replacingAbsences=((D.teacherAbsences)||[]).filter(a=>a.replacedById===tid&&a.date===todayStr2);
+      replacingAbsences.forEach(a=>{const absentTeacher=teachers.find(x=>x.id===a.teacherId);
+        [...(absentTeacher?.classIds||[]),...classes.filter(c=>(c.teacherIds||[]).includes(a.teacherId)).map(c=>c.id)]
+        .forEach(cid=>myClassIds.add(cid));});
       return classes.filter(c=>myClassIds.has(c.id));
     }
     return classes},[classes,teachers,user,D.teacherAbsences]);
