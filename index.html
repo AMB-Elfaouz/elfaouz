@@ -1017,10 +1017,8 @@ function InscriptionsPage({D,set}){
           if(r.condition==="arabe+si"&&matieres.has("Arabe")&&matieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
           else if(r.condition==="arabe+coran"&&matieres.has("Arabe")&&matieres.has("Coran"))items.push({label:r.label,amount:r.amount});
         });
-        // Manual remises selected in form (not applicable in bulk context)
-        // (form.selectedRemises||[]) — skipped: no form context here
-        // Extras selected in form (not applicable in bulk context)
-        // if(allEnrs.length===0)(form.selectedExtras||[]) — skipped: no form context here
+        // Manual remises / extras from form not applicable in bulk/status-change context
+        // (form.selectedRemises) and (form.selectedExtras) skipped — no form context here
         const total=items.reduce((s,i)=>s+i.amount,0);
         set.setInvoices(p=>[...p,{id:uid(),studentId:enr.studentId,enrollmentIds:[eid],items,total,paid:0,status:"Impayée",payments:[],schedule:[]}]);
       }
@@ -1976,9 +1974,22 @@ function AppelTab({D,set}){
     return edt},[edt,user,D.teacherAbsences,teachers]);
   const [showAllDays,setShowAllDays]=useState(false);
   const displaySlots=showAllDays?allSlots:availSlots;
-
+  // Classes affectées à cet enseignant (pour fallback sans EDT)
+  const myAssignedClasses=useMemo(()=>{
+    if(user.role==="enseignant"&&user.teacherId){
+      const t=teachers.find(t=>t.id===user.teacherId);
+      const myClassIds=new Set(t?.classIds||[]);
+      const replacingAbsences=(teacherAbsences||[]).filter(a=>a.replacedById===user.teacherId&&a.date===appelDate);
+      replacingAbsences.forEach(a=>{const rt=teachers.find(x=>x.id===a.teacherId);(rt?.classIds||[]).forEach(cid=>myClassIds.add(cid));});
+      return classes.filter(c=>myClassIds.has(c.id));
+    }
+    return classes},[classes,teachers,user,appelDate,teacherAbsences]);
+  // Mode fallback : enseignant sans créneau EDT → sélection directe de classe
+  const [selDirectClass,setSelDirectClass]=useState("");
+  const isTeacherNoEdt=user.role==="enseignant"&&user.teacherId&&myAssignedClasses.length>0&&allSlots.length===0;
   const selSlotObj=edt.find(s=>s.id===selSlot);
-  const selClassId=selSlotObj?.classId;
+  // En mode direct, la classe sélectionnée est selDirectClass ; sinon via le slot EDT
+  const selClassId=isTeacherNoEdt?selDirectClass:(selSlotObj?.classId||"");
   const selClassObj=selClassId?classes.find(c=>c.id===selClassId):null;
   const classStudents=useMemo(()=>{if(!selClassId)return[];
     return enrollments.filter(e=>e.classId===selClassId&&e.status==="Inscription acceptée").map(e=>students.find(s=>s.id===e.studentId)).filter(Boolean)},[selClassId,enrollments,students]);
@@ -2005,18 +2016,24 @@ function AppelTab({D,set}){
       return[...filtered,...newAbs]});
     alert("Appel enregistre pour le "+dateAppel+" ! "+absentC+" absent(s), "+retardC+" retard(s), "+(classStudents.length-absentC-retardC)+" present(s)");}
 
+  if(user.role==="enseignant"&&user.teacherId&&myAssignedClasses.length===0)return <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center"><p className="text-2xl mb-2">📋</p><p className="font-semibold text-amber-800">Aucune classe affectée</p><p className="text-sm text-amber-600 mt-1">Contactez la direction pour être affecté à une classe avant de faire l'appel.</p></div>;
   return <div className="space-y-4">
     <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm flex items-center justify-between flex-wrap gap-2">
       <div><p className="font-bold text-blue-800">Appel du : {selectedJour} {appelDate}</p>
-        {availSlots.length>0?<p className="text-blue-600 text-xs">{availSlots.length} cours prevu(s)</p>
-          :<p className="text-blue-600 text-xs">Aucun cours ce jour</p>}</div>
+        {!isTeacherNoEdt&&(availSlots.length>0?<p className="text-blue-600 text-xs">{availSlots.length} cours prevu(s)</p>
+          :<p className="text-blue-600 text-xs">Aucun cours ce jour</p>)}</div>
       <div className="flex items-center gap-2"><label className="text-xs text-blue-700 font-medium">Date :</label>
-        <input type="date" value={appelDate} onChange={e=>{setAppelDate(e.target.value);setSelSlot("");setRecords({})}} className="px-2 py-1 border rounded text-xs"/></div>
+        <input type="date" value={appelDate} onChange={e=>{setAppelDate(e.target.value);setSelSlot("");setSelDirectClass("");setRecords({})}} className="px-2 py-1 border rounded text-xs"/></div>
     </div>
-    <div className="flex items-center gap-3">
+    {/* Mode fallback : enseignant avec classes affectées mais pas de créneaux EDT */}
+    {isTeacherNoEdt&&<div className="space-y-2">
+      <p className="text-xs text-gray-500">Aucun emploi du temps configuré. Sélectionnez votre classe directement :</p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">{myAssignedClasses.map(c=>{const done=absences.some(a=>a.classId===c.id&&a.date===appelDate);return <button key={c.id} onClick={()=>{setSelDirectClass(c.id);setRecords({});}} className={`text-left p-3 rounded-lg border-2 transition ${selDirectClass===c.id?"border-emerald-500 bg-emerald-50":done?"border-emerald-200 bg-emerald-50/40":"border-gray-200 hover:border-gray-300"}`}><p className="text-sm font-bold">{c.label}</p>{done?<span className="text-xs text-emerald-700">✅ Appel fait</span>:<span className="text-xs text-orange-600">⏳ Non fait</span>}</button>})}</div>
+    </div>}
+    {!isTeacherNoEdt&&<div className="flex items-center gap-3">
       <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={showAllDays} onChange={e=>setShowAllDays(e.target.checked)} className="rounded"/>Afficher tous les jours</label>
-    </div>
-    {displaySlots.length>0?<div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+    </div>}
+    {!isTeacherNoEdt&&(displaySlots.length>0?<div className="grid grid-cols-1 md:grid-cols-2 gap-2">
       {displaySlots.map(s=>{const cl=classes.find(c=>c.id===s.classId);const profs=(s.teacherIds||[]).map(tid=>teachers.find(t=>t.id===tid)?.name).filter(Boolean);
         const isSel=selSlot===s.id;
         // Date effective du créneau :
@@ -2051,12 +2068,15 @@ function AppelTab({D,set}){
                 :<span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded font-medium">⏳ Non fait</span>}
               {isSel&&<span className="text-emerald-600 font-bold text-lg block">✓</span>}</div>
           </div></button>})}
-    </div>:<EmptyState icon="📅" text={showAllDays?"Aucun creneau dans l'emploi du temps":"Aucun cours aujourd'hui"}/>}
+    </div>:<EmptyState icon="📅" text={showAllDays?"Aucun creneau dans l'emploi du temps":"Aucun cours aujourd'hui"}/>)}
 
-    {selSlotObj&&classStudents.length>0&&<div className="bg-white rounded-xl border shadow-sm overflow-hidden mt-2">
+    {/* Panneau appel — fonctionne en mode EDT (selSlotObj) ET en mode direct (selDirectClass) */}
+    {selClassObj&&classStudents.length>0&&<div className="bg-white rounded-xl border shadow-sm overflow-hidden mt-2">
       <div className="px-4 py-3 bg-emerald-700 text-white flex justify-between items-center">
-        <div><p className="text-sm font-bold">Appel — {selSlotObj.jour} {selSlotObj.date||appelDate} {selSlotObj.heureDebut}-{selSlotObj.heureFin}</p>
-          <p className="text-xs opacity-80">{selClassObj?.label} — {selSlotObj.salle} — {classStudents.length} eleves</p></div>
+        <div>
+          {selSlotObj?<p className="text-sm font-bold">Appel — {selSlotObj.jour} {selSlotObj.date||appelDate} {selSlotObj.heureDebut}-{selSlotObj.heureFin}</p>
+            :<p className="text-sm font-bold">Appel — {selectedJour} {appelDate}</p>}
+          <p className="text-xs opacity-80">{selClassObj?.label} — {classStudents.length} élèves</p></div>
         <div className="flex items-center gap-2">{appelDejeFait&&<span className="text-xs bg-white/20 px-2 py-1 rounded">Appel deja enregistre — modifiable</span>}
           <Btn size="sm" variant="secondary" onClick={validerAppel}>{appelDejeFait?"Mettre a jour":"Valider l appel"}</Btn></div></div>
       <div className="px-4 py-2 bg-gray-50 border-b text-xs text-gray-500">
@@ -2072,7 +2092,7 @@ function AppelTab({D,set}){
             <button onClick={()=>toggle(s.id,"retard")} className={`px-2 py-1 rounded text-xs font-medium border ${r==="retard"?"bg-orange-500 text-white border-orange-500":"border-gray-300 hover:border-orange-300"}`}>Retard</button>
             <button onClick={()=>toggle(s.id,null)} className={`px-2 py-1 rounded text-xs font-medium border ${!r?"bg-emerald-500 text-white border-emerald-500":"border-gray-300"}`}>Présent</button>
           </div></div>})}</div></div>}
-    {selSlotObj&&classStudents.length===0&&<EmptyState icon="📋" text="Aucun eleve inscrit dans cette classe"/>}
+    {selClassObj&&classStudents.length===0&&<EmptyState icon="📋" text="Aucun eleve inscrit dans cette classe"/>}
   </div>;
 }
 function AbsencesEleves({D,set}){
@@ -2356,6 +2376,7 @@ ${distinctEvals}/3 notes saisies — Trimestre se termine dans ${daysLeft} jour(
       }
     });
   }
+  if(user.role==="enseignant"&&user.teacherId&&availClasses.length===0)return <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center"><p className="text-2xl mb-2">📚</p><p className="font-semibold text-amber-800">Aucune classe affectée</p><p className="text-sm text-amber-600 mt-1">Contactez la direction pour être affecté à une classe avant de saisir des notes.</p></div>;
   return <div className="space-y-4">
     <div className="p-2 bg-blue-50 rounded-lg border border-blue-200 text-xs text-blue-700 flex justify-between items-center">
       <span>Les notes saisies aujourd'hui ({todayStr}) seront rattachees au : <strong>{currentTrim}</strong></span>
@@ -2418,17 +2439,27 @@ ${distinctEvals}/3 notes saisies — Trimestre se termine dans ${daysLeft} jour(
 }
 function NoteImport({D,set}){
   const [text,setText]=useState("");const [preview,setPreview]=useState([]);
-  const {subjects}=D;const [selSubject,setSelSubject]=useState("");const [selClass,setSelClass]=useState("");const [noteSur,setNoteSur]=useState(20);const [noteType,setNoteType]=useState("Grand contrôle");
+  const {subjects,user,teachers}=D;const [selSubject,setSelSubject]=useState("");const [selClass,setSelClass]=useState("");const [noteSur,setNoteSur]=useState(20);const [noteType,setNoteType]=useState("Grand contrôle");
+  const availClasses=useMemo(()=>{
+    if(user.role==="enseignant"&&user.teacherId){
+      const t=teachers.find(t=>t.id===user.teacherId);
+      const myClassIds=new Set(t?.classIds||[]);
+      const replacingAbsences=((D.teacherAbsences)||[]).filter(a=>a.replacedById===user.teacherId&&a.date===today());
+      replacingAbsences.forEach(a=>{const at=teachers.find(x=>x.id===a.teacherId);(at?.classIds||[]).forEach(cid=>myClassIds.add(cid));});
+      return D.classes.filter(c=>myClassIds.has(c.id));
+    }
+    return D.classes},[D.classes,teachers,user,D.teacherAbsences]);
   function parse(){const lines=text.trim().split("\n").map(l=>l.split("\t"));setPreview(lines)}
   function importGrades(){if(!selSubject||!selClass)return;
     preview.forEach(([prenom,nom,note])=>{if(!note||isNaN(parseFloat(note)))return;
       const st=D.students.find(s=>s.prenom.toLowerCase()===prenom?.trim().toLowerCase()&&s.nom.toLowerCase()===nom?.trim().toLowerCase());
       if(st)set.setGrades(p=>[...p,{id:uid(),studentId:st.id,subjectId:selSubject,classId:selClass,value:parseFloat(note),noteSur,date:today(),type:noteType}])});
     alert(`${preview.length} notes importees !`);setText("");setPreview([])}
+  if(user.role==="enseignant"&&user.teacherId&&availClasses.length===0)return <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center"><p className="text-2xl mb-2">📚</p><p className="font-semibold text-amber-800">Aucune classe affectée</p><p className="text-sm text-amber-600 mt-1">Contactez la direction pour être affecté à une classe.</p></div>;
   return <div className="space-y-4">
     <p className="text-sm text-gray-600">Collez depuis Excel: <strong>Prenom [TAB] Nom [TAB] Note</strong></p>
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <Sel label="Classe" value={selClass} onChange={e=>setSelClass(e.target.value)} options={[{value:"",label:"-- Classe --"},...D.classes.map(c=>({value:c.id,label:c.label}))]}/>
+      <Sel label="Classe" value={selClass} onChange={e=>setSelClass(e.target.value)} options={[{value:"",label:"-- Classe --"},...availClasses.map(c=>({value:c.id,label:c.label}))]}/>
       <Sel label="Matiere" value={selSubject} onChange={e=>setSelSubject(e.target.value)} options={[{value:"",label:"-- Matiere --"},...subjects.map(s=>({value:s.id,label:s.name}))]}/>
       <Sel label="Type" value={noteType} onChange={e=>setNoteType(e.target.value)} options={[{value:"Contrôle continu",label:"Contrôle continu"},{value:"Grand contrôle",label:"Grand contrôle"}]}/>
       <Inp label={`Note sur`} type="number" min="1" value={noteSur} onChange={e=>setNoteSur(parseInt(e.target.value)||20)}/></div>
@@ -2640,6 +2671,7 @@ function Bulletins({D,set}){
 
   const singleB=selStudent?computeFor(selStudent):null;
   const batch=batchMode?classStudentList.map(s=>computeFor(s.id)).filter(Boolean):[];
+  if(user.role==="enseignant"&&user.teacherId&&availClasses.length===0)return <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center"><p className="text-2xl mb-2">📄</p><p className="font-semibold text-amber-800">Aucune classe affectée</p><p className="text-sm text-amber-600 mt-1">Contactez la direction pour être affecté à une classe avant d'éditer des bulletins.</p></div>;
   return <div className="space-y-4">
     <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 no-print">
       <Sel label="Classe" value={selClass} onChange={e=>{setSelClass(e.target.value);setSelStudent("");setBatchMode(false)}} options={[{value:"",label:"-- Classe --"},...availClasses.map(c=>({value:c.id,label:c.label}))]}/>
