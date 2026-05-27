@@ -1017,10 +1017,10 @@ function InscriptionsPage({D,set}){
           if(r.condition==="arabe+si"&&matieres.has("Arabe")&&matieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
           else if(r.condition==="arabe+coran"&&matieres.has("Arabe")&&matieres.has("Coran"))items.push({label:r.label,amount:r.amount});
         });
-        // Manual remises selected in form
-        (form.selectedRemises||[]).forEach(rid=>{const r=(D.remises||[]).find(x=>x.id===rid);if(r)items.push({label:r.label,amount:r.amount});});
-        // Extras selected in form (only on first enrollment to avoid duplicates)
-        if(allEnrs.length===0)(form.selectedExtras||[]).forEach(key=>{if(tarifs[key]!==undefined)items.push({label:key,amount:tarifs[key]});});
+        // Manual remises selected in form (not applicable in bulk context)
+        // (form.selectedRemises||[]) — skipped: no form context here
+        // Extras selected in form (not applicable in bulk context)
+        // if(allEnrs.length===0)(form.selectedExtras||[]) — skipped: no form context here
         const total=items.reduce((s,i)=>s+i.amount,0);
         set.setInvoices(p=>[...p,{id:uid(),studentId:enr.studentId,enrollmentIds:[eid],items,total,paid:0,status:"Impayée",payments:[],schedule:[]}]);
       }
