@@ -995,6 +995,30 @@ function InscriptionsPage({D,set}){
       const removeIds=new Set(toRemove.map(e=>e.id));
       set.setEnrollments(p=>p.filter(e=>!removeIds.has(e.id)));
     }
+    // Créer ou mettre à jour la facture si extras/remises sélectionnés
+    if((form.selectedExtras&&form.selectedExtras.length>0)||(form.selectedRemises&&form.selectedRemises.length>0)||form.generateInvoice){
+      const tar=tarifs;const rem=D.remises||[];
+      const selectedMatieres=new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
+      const items=[];
+      if(tar["Frais de dossier"]!==undefined)items.push({label:"Frais de dossier",amount:tar["Frais de dossier"]});
+      selectedMatieres.forEach(m=>{if(tar[m]!==undefined)items.push({label:m,amount:tar[m]})});
+      (form.selectedExtras||[]).forEach(key=>{if(tar[key]!==undefined)items.push({label:key,amount:tar[key]})});
+      // Auto-remises
+      rem.filter(r=>r.auto&&r.condition).forEach(r=>{
+        if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
+        else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))items.push({label:r.label,amount:r.amount});
+      });
+      // Manual remises
+      (form.selectedRemises||[]).forEach(rid=>{const r=rem.find(x=>x.id===rid);if(r)items.push({label:r.label,amount:r.amount});});
+      const total=items.reduce((s,i)=>s+i.amount,0);
+      // Check if invoice already exists for this student
+      const existingInv=invoices.find(i=>i.studentId===form.id);
+      if(existingInv){
+        set.setInvoices(p=>p.map(i=>i.id===existingInv.id?{...i,items,total}:i));
+      } else {
+        set.setInvoices(p=>[...p,{id:uid(),studentId:form.id,enrollmentIds:form.selectedClasses,items,total,paid:0,status:"Impayée",payments:[],schedule:[]}]);
+      }
+    }
     setEditStudent(null);
   }
 
@@ -1127,32 +1151,59 @@ function InscriptionsPage({D,set}){
       <ImportStudents D={D} set={set} onDone={()=>setShowImport(false)}/>
     </Modal>
     <Modal open={!!editStudent} onClose={()=>setEditStudent(null)} title={editStudent?`Modifier — ${editStudent.prenom} ${editStudent.nom}`:""} wide>
-      {editStudent&&<EditStudentModal student={editStudent} classes={classes} enrollments={enrollments} onSave={handleEditStudent} onCancel={()=>setEditStudent(null)}/>}
+      {editStudent&&<EditStudentModal student={editStudent} classes={classes} enrollments={enrollments} invoices={invoices} tarifs={tarifs} remises={D.remises} onSave={handleEditStudent} onCancel={()=>setEditStudent(null)}/>}
     </Modal>
   </div>;
 }
 
-function EditStudentModal({student,classes,enrollments,onSave,onCancel}){
+function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,onSave,onCancel}){
+  tarifs=tarifs||{};remises=remises||[];invoices=invoices||[];
   const currentEnrs=enrollments.filter(e=>e.studentId===student.id);
   const currentClassIds=currentEnrs.map(e=>e.classId);
+  // Précharger extras/remises depuis la facture existante si elle existe
+  const existingInv=invoices.find(i=>i.studentId===student.id);
+  const classeMatieres=new Set(classes.map(c=>c.matiere));
+  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k)&&k!=="Frais de dossier");
+  const manualRemises=remises.filter(r=>!r.auto);
+  const initExtras=existingInv?(existingInv.items||[]).map(i=>i.label).filter(k=>extras.some(([ek])=>ek===k)):[];
+  const initRemises=existingInv?(existingInv.items||[]).map(i=>i.label).filter(lbl=>manualRemises.some(r=>r.label===lbl)).map(lbl=>manualRemises.find(r=>r.label===lbl)?.id).filter(Boolean):[];
   const [f,sF]=useState({
     prenom:student.prenom||"",nom:student.nom||"",dob:student.dob||"",genre:student.genre||"M",
     email:student.email||"",tel:student.tel||"",adresse:student.adresse||"",cp:student.cp||"",ville:student.ville||"",
     ine:student.ine||"",
     rep1:{type:student.rep1?.type||"Tuteur",nom:student.rep1?.nom||"",prenom:student.rep1?.prenom||"",tel:student.rep1?.tel||"",email:student.rep1?.email||""},
     rep2:{type:student.rep2?.type||"Tuteur",nom:student.rep2?.nom||"",prenom:student.rep2?.prenom||"",tel:student.rep2?.tel||"",email:student.rep2?.email||""},
-    selectedClasses:[...currentClassIds]
+    selectedClasses:[...currentClassIds],
+    selectedExtras:initExtras,
+    selectedRemises:initRemises,
+    generateInvoice:false
   });
   const u=(k,v)=>sF(p=>({...p,[k]:v}));
   const uRep=(rep,k,v)=>sF(p=>({...p,[rep]:{...p[rep],[k]:v}}));
   const toggleClass=(cid)=>sF(p=>{
     const enr=currentEnrs.find(e=>e.classId===cid);
     const isAccepted=enr&&enr.status==="Inscription acceptée";
-    if(isAccepted)return p; // can't remove an accepted class from here
+    if(isAccepted)return p;
     const sel=p.selectedClasses.includes(cid)?p.selectedClasses.filter(x=>x!==cid):[...p.selectedClasses,cid];
     return {...p,selectedClasses:sel};
   });
+  const toggleExtra=(key)=>sF(p=>({...p,selectedExtras:p.selectedExtras.includes(key)?p.selectedExtras.filter(x=>x!==key):[...p.selectedExtras,key],generateInvoice:true}));
+  const toggleRemise=(rid)=>sF(p=>({...p,selectedRemises:p.selectedRemises.includes(rid)?p.selectedRemises.filter(x=>x!==rid):[...p.selectedRemises,rid],generateInvoice:true}));
   const grouped={};classes.forEach(c=>{if(!grouped[c.matiere])grouped[c.matiere]=[];grouped[c.matiere].push(c)});
+
+  // Calcul total estimé
+  const selectedMatieres=new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
+  const autoRemises=remises.filter(r=>r.auto&&r.condition);
+  let estTotal=0;
+  if(tarifs["Frais de dossier"]!==undefined)estTotal+=tarifs["Frais de dossier"];
+  selectedMatieres.forEach(m=>{if(tarifs[m]!==undefined)estTotal+=tarifs[m]});
+  f.selectedExtras.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
+  autoRemises.forEach(r=>{
+    if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))estTotal+=r.amount;
+    else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))estTotal+=r.amount;
+  });
+  f.selectedRemises.forEach(rid=>{const r=remises.find(x=>x.id===rid);if(r)estTotal+=r.amount;});
+
   return <div className="space-y-4">
     <p className="text-xs text-gray-500 font-medium uppercase tracking-wide border-b pb-1">Informations élève</p>
     <div className="grid grid-cols-3 gap-3">
@@ -1192,7 +1243,7 @@ function EditStudentModal({student,classes,enrollments,onSave,onCancel}){
       <p className="text-xs text-amber-600 mb-2">⚠️ Les classes avec statut "Inscription acceptée" ne peuvent pas être retirées ici.</p>
       <div className="space-y-3 max-h-52 overflow-y-auto border border-gray-200 rounded-lg p-3">
         {Object.entries(grouped).map(([matiere,cls])=><div key={matiere}>
-          <p className="text-xs font-bold text-gray-700 mb-1">{matiere}</p>
+          <p className="text-xs font-bold text-gray-700 mb-1">{matiere}{tarifs[matiere]!==undefined?" — "+tarifs[matiere]+"€":""}</p>
           <div className="grid grid-cols-2 gap-1">{cls.map(c=>{
             const sel=f.selectedClasses.includes(c.id);
             const enr=currentEnrs.find(e=>e.classId===c.id);
@@ -1208,6 +1259,38 @@ function EditStudentModal({student,classes,enrollments,onSave,onCancel}){
             </button>})}</div></div>)}
       </div>
     </div>
+
+    {extras.length>0&&<div>
+      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide border-b pb-1 mb-3">🧾 Frais supplémentaires</p>
+      <div className="grid grid-cols-2 gap-1 border border-gray-200 rounded-lg p-3">
+        {extras.map(([key,val])=>{const sel=f.selectedExtras.includes(key);return <button key={key} type="button" onClick={()=>toggleExtra(key)}
+          className={`text-left p-2 rounded-lg border text-xs transition ${sel?"border-amber-500 bg-amber-50":"border-gray-200 hover:border-gray-300"}`}>
+          <span className="font-medium">{key}</span><span className="ml-1 text-gray-500">{val}€</span>
+          {sel&&<span className="float-right text-amber-600 font-bold">✓</span>}</button>;})}
+      </div>
+    </div>}
+
+    {manualRemises.length>0&&<div>
+      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide border-b pb-1 mb-3">🏷️ Remises manuelles</p>
+      <div className="grid grid-cols-2 gap-1 border border-gray-200 rounded-lg p-3">
+        {manualRemises.map(r=>{const sel=f.selectedRemises.includes(r.id);return <button key={r.id} type="button" onClick={()=>toggleRemise(r.id)}
+          className={`text-left p-2 rounded-lg border text-xs transition ${sel?"border-purple-500 bg-purple-50":"border-gray-200 hover:border-gray-300"}`}>
+          <span className="font-medium">{r.label}</span><span className="ml-1 text-red-600">{r.amount}€</span>
+          {sel&&<span className="float-right text-purple-600 font-bold">✓</span>}</button>;})}
+      </div>
+    </div>}
+
+    {f.selectedClasses.length>0&&<div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 space-y-1">
+      <p className="text-xs text-gray-600 font-semibold uppercase mb-1">Récapitulatif facture</p>
+      {tarifs["Frais de dossier"]!==undefined&&<div className="flex justify-between text-xs"><span className="text-gray-600">Frais de dossier</span><span>{tarifs["Frais de dossier"]}€</span></div>}
+      {[...selectedMatieres].map(m=>tarifs[m]!==undefined&&<div key={m} className="flex justify-between text-xs"><span className="text-gray-600">{m}</span><span>{tarifs[m]}€</span></div>)}
+      {f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
+      {autoRemises.filter(r=>{if(r.condition==="arabe+si")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques");if(r.condition==="arabe+coran")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran");return false;}).map(r=><div key={r.id} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
+      {f.selectedRemises.map(rid=>{const r=remises.find(x=>x.id===rid);return r&&<div key={rid} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>;})}
+      <div className="flex justify-between text-sm font-bold text-emerald-800 pt-1 border-t border-emerald-200"><span>Total estimé</span><span>{estTotal}€</span></div>
+      {existingInv?<p className="text-[10px] text-blue-600 mt-1">ℹ️ Une facture existe déjà — elle sera mise à jour avec ces éléments.</p>:<p className="text-[10px] text-emerald-600 mt-1">💡 Une facture sera créée automatiquement si vous ajoutez des frais ou remises.</p>}
+    </div>}
+
     <div className="flex justify-end gap-2 pt-3 border-t">
       <Btn variant="secondary" onClick={onCancel}>Annuler</Btn>
       <Btn onClick={()=>onSave({...student,...f,id:student.id})} disabled={!f.prenom||!f.nom}>💾 Enregistrer les modifications</Btn>
