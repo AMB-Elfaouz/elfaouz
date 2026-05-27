@@ -177,7 +177,7 @@ const SEED_ACCOUNTS=[
   {id:"u29",login:"yacoubi.fatiha",password:"elfaouz2025",name:"YACOUBI FATIHA",role:"enseignant",email:"",teacherId:"t27"},
   {id:"u30",login:"zaoui.ilyes",password:"elfaouz2025",name:"ZAOUI ILYES",role:"enseignant",email:"",teacherId:"t28"},
 ];
-const DEFAULT_TARIFS={"Arabe":350,"Coran":150,"Coran Enfant":135,"Coran Mamie":135,"Sciences Islamiques":150,"Frais de dossier":15};
+const DEFAULT_TARIFS={"Arabe":350,"Coran":150,"Coran Enfant":135,"Coran Mamie":135,"Sciences Islamiques":150,"Frais de dossier":15,"Livre Arabe 1er":4,"Livre Arabe 2è":8,"Livre Arabe 2èS":14,"Livre Arabe 3è":20,"Livre Arabe Adulte":18,"Livre Coran Enfant":5,"Livre Coran Juz Amma":1.5};
 const DEFAULT_REMISES=[
   {id:"r1",label:"Remise 2 enfants",amount:-10,auto:true,condition:"2enfants"},
   {id:"r2",label:"Remise 3 enfants",amount:-25,auto:true,condition:"3enfants"},
@@ -1163,7 +1163,7 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,o
   // Précharger extras/remises depuis la facture existante si elle existe
   const existingInv=invoices.find(i=>i.studentId===student.id);
   const classeMatieres=new Set(classes.map(c=>c.matiere));
-  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k)&&k!=="Frais de dossier");
+  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k));
   const manualRemises=remises.filter(r=>!r.auto);
   const initExtras=existingInv?(existingInv.items||[]).map(i=>i.label).filter(k=>extras.some(([ek])=>ek===k)):[];
   const initRemises=existingInv?(existingInv.items||[]).map(i=>i.label).filter(lbl=>manualRemises.some(r=>r.label===lbl)).map(lbl=>manualRemises.find(r=>r.label===lbl)?.id).filter(Boolean):[];
