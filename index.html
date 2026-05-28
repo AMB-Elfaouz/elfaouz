@@ -993,49 +993,8 @@ function InscriptionsPage({D,set}){
     set.setEnrollments(p=>[...p,...newEnrs]);
     // If also teacher, create teacher record
     if(form.isAlsoTeacher){set.setTeachers(p=>[...p,{id:uid(),name:`${form.prenom} ${form.nom}`,subjectIds:form.teacherSubjects||[],phone:form.tel,email:form.email,studentId:form.id}]);}
-    // ── Générer la facture avec remise famille ─────────────────────────────
-    {
-      const tar=tarifs;const rem=D.remises||[];
-      const autoLivresNI=[...new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
-      const tarifKeysNI=[...new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getClassTarifKey(c.label):null}).filter(Boolean))];
-      const matieresNI=new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
-      const itemsNI=[];
-      if(tar["Frais de dossier"]!==undefined)itemsNI.push({label:"Frais de dossier",amount:tar["Frais de dossier"]});
-      tarifKeysNI.forEach(k=>{if(tar[k]!==undefined)itemsNI.push({label:k,amount:tar[k]})});
-      autoLivresNI.forEach(k=>{if(tar[k]!==undefined)itemsNI.push({label:k,amount:tar[k]})});
-      // Extras (admin/secrétariat)
-      (form.selectedExtras||[]).forEach(k=>{if(tar[k]!==undefined)itemsNI.push({label:k,amount:tar[k]})});
-      // Auto-remises cours
-      rem.filter(r=>r.auto&&r.condition).forEach(r=>{
-        if(r.condition==="arabe+si"&&matieresNI.has("Arabe")&&matieresNI.has("Sciences Islamiques"))itemsNI.push({label:r.label,amount:r.amount});
-        else if(r.condition==="arabe+coran"&&matieresNI.has("Arabe")&&matieresNI.has("Coran"))itemsNI.push({label:r.label,amount:r.amount});
-      });
-      // Remise famille
-      const famRemNI=getFamilleRemise(fratrieNew.length,rem);
-      if(famRemNI)itemsNI.push({label:famRemNI.label,amount:famRemNI.amount});
-      // Admin manual remises
-      if(user.role==="admin")(form.selectedRemises||[]).forEach(rid=>{const r=rem.find(x=>x.id===rid);if(r)itemsNI.push({label:r.label,amount:r.amount});});
-      const totalNI=itemsNI.reduce((s,i)=>s+i.amount,0);
-      set.setInvoices(p=>[...p,{id:uid(),studentId:form.id,enrollmentIds:newEnrIds,items:itemsNI,total:totalNI,paid:0,status:"Impayée",payments:[],schedule:[]}]);
-      // Mise à jour rétroactive des aînés
-      const totalFamNI=fratrieNew.length+1;
-      if(fratrieNew.length>0){
-        const famConditions=new Set(["2enfants","3enfants"]);
-        const famLabels=new Set(rem.filter(r=>r.auto&&famConditions.has(r.condition)).map(r=>r.label));
-        set.setInvoices(prev=>{
-          let upd=[...prev];
-          fratrieNew.forEach(sib=>{
-            const idx=upd.findIndex(i=>i.studentId===sib.id);
-            if(idx===-1)return;
-            const newFamR=getFamilleRemiseByTotal(totalFamNI,rem);
-            const cleaned=upd[idx].items.filter(it=>!famLabels.has(it.label));
-            const newItems=newFamR?[...cleaned,{label:newFamR.label,amount:newFamR.amount}]:cleaned;
-            upd[idx]={...upd[idx],items:newItems,total:newItems.reduce((s,i)=>s+i.amount,0)};
-          });
-          return upd;
-        });
-      }
-    }
+    // NOTE : La facture est créée UNIQUEMENT dans changeStatus (quand l'inscription est validée).
+    // Cela évite tout doublon entre la soumission du formulaire et la validation.
     setShowNew(false);
   }
 
@@ -1142,43 +1101,72 @@ function InscriptionsPage({D,set}){
     if(status==="Inscription acceptée"){
       const enr=enrollments.find(e=>e.id===eid);if(!enr)return;
       set.setClasses(p=>p.map(c=>c.id===enr.classId?{...c,enrolled:c.enrolled+1}:c));
-      // Facture : si elle existe déjà (créée lors de l'inscription), la lier à cet enrollment.
-      // Si elle n'existe pas encore, la créer (cas d'une validation directe sans passer par le formulaire).
+      // ── Facture — créée ICI (seul endroit) lors de la validation ────────────
+      // Si une facture existe déjà pour cet élève (ex: via EditStudentModal),
+      // on la met à jour en reliant l'enrollment. Sinon on la crée.
       const cl=classes.find(c=>c.id===enr.classId);if(!cl)return;
-      const anyExistingInv=invoices.find(i=>i.studentId===enr.studentId);
-      if(anyExistingInv){
-        // Facture déjà créée — ajouter l'eid aux enrollmentIds si absent
-        if(!anyExistingInv.enrollmentIds.includes(eid)){
-          set.setInvoices(p=>p.map(i=>i.id===anyExistingInv.id
-            ?{...i,enrollmentIds:[...i.enrollmentIds,eid]}:i));
+      const rem=D.remises||[];
+      const stCS=students.find(s=>s.id===enr.studentId);
+
+      set.setInvoices(prev=>{
+        const existing=prev.find(i=>i.studentId===enr.studentId);
+        if(existing){
+          // Facture déjà créée (via EditStudentModal) — juste lier l'enrollment
+          if(existing.enrollmentIds.includes(eid))return prev;
+          return prev.map(i=>i.id===existing.id
+            ?{...i,enrollmentIds:[...i.enrollmentIds,eid]}:i);
         }
-        // Pas de création de facture supplémentaire
-      } else {
-        // Aucune facture — créer avec remise famille
+
+        // Aucune facture — construire les items complets
         const tarifKey=getClassTarifKey(cl.label)||cl.matiere;
         const t=tarifs[tarifKey]!==undefined?tarifs[tarifKey]:150;
         const autoLivre=getAutoLivre(cl.label);
-        const allEnrs=enrollments.filter(e=>e.studentId===enr.studentId&&e.status==="Inscription acceptée");
-        const matieres=new Set(allEnrs.map(e=>{const c2=classes.find(c=>c.id===e.classId);return c2?.matiere}).filter(Boolean));
-        matieres.add(cl.matiere);
         const fdDossier=tarifs["Frais de dossier"]!==undefined?tarifs["Frais de dossier"]:15;
         const items=[{label:tarifKey,amount:t},{label:"Frais de dossier",amount:fdDossier}];
         if(autoLivre&&tarifs[autoLivre]!==undefined)items.push({label:autoLivre,amount:tarifs[autoLivre]});
-        const rem=D.remises||[];
+
+        // Remises cours auto (Arabe+SI, Arabe+Coran)
+        const allEnrs=enrollments.filter(e=>e.studentId===enr.studentId&&e.status==="Inscription acceptée");
+        const matieres=new Set(allEnrs.map(e=>{const c2=classes.find(c=>c.id===e.classId);return c2?.matiere}).filter(Boolean));
+        matieres.add(cl.matiere);
         rem.filter(r=>r.auto&&r.condition).forEach(r=>{
           if(r.condition==="arabe+si"&&matieres.has("Arabe")&&matieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
           else if(r.condition==="arabe+coran"&&matieres.has("Arabe")&&matieres.has("Coran"))items.push({label:r.label,amount:r.amount});
         });
-        // Remise famille
-        const stCS=students.find(s=>s.id===enr.studentId);
+
+        // Remise famille — détectée ici dans le state fonctionnel (prev est à jour)
         if(stCS){
-          const fratrieCS=detectFratrie(stCS,students);
-          const famRemCS=getFamilleRemise(fratrieCS.length,rem);
-          if(famRemCS)items.push({label:famRemCS.label,amount:famRemCS.amount});
+          // Frères/sœurs = élèves de la même famille qui ont DÉJÀ une facture dans prev
+          const fratrieIds=detectFratrie(stCS,students).map(s=>s.id);
+          const fratrieAvecFacture=fratrieIds.filter(sid=>prev.some(i=>i.studentId===sid));
+          const famRem=getFamilleRemise(fratrieAvecFacture.length,rem);
+          if(famRem)items.push({label:famRem.label,amount:famRem.amount});
         }
+
         const total=items.reduce((s,i)=>s+i.amount,0);
-        set.setInvoices(p=>[...p,{id:uid(),studentId:enr.studentId,enrollmentIds:[eid],items,total,paid:0,status:"Impayée",payments:[],schedule:[]}]);
-      }
+        const newInv={id:uid(),studentId:enr.studentId,enrollmentIds:[eid],items,total,paid:0,status:"Impayée",payments:[],schedule:[]};
+
+        // Mise à jour rétroactive des aînés dans le même appel fonctionnel
+        // (prev est l'état courant garanti par React — pas de stale state)
+        const famConditions=new Set(["2enfants","3enfants"]);
+        const famLabels=new Set(rem.filter(r=>r.auto&&famConditions.has(r.condition)).map(r=>r.label));
+        if(stCS){
+          const fratrieIds=detectFratrie(stCS,students).map(s=>s.id);
+          const fratrieAvecFacture=fratrieIds.filter(sid=>prev.some(i=>i.studentId===sid));
+          const totalFamille=fratrieAvecFacture.length+1; // aînés + nouvel élève
+          const newFamRem=getFamilleRemiseByTotal(totalFamille,rem);
+          const updated=prev.map(inv=>{
+            if(!fratrieAvecFacture.includes(inv.studentId))return inv;
+            // Retirer l'ancienne remise famille, ajouter la nouvelle
+            const cleanItems=inv.items.filter(it=>!famLabels.has(it.label));
+            const newItems=newFamRem?[...cleanItems,{label:newFamRem.label,amount:newFamRem.amount}]:cleanItems;
+            return{...inv,items:newItems,total:newItems.reduce((s,i)=>s+i.amount,0)};
+          });
+          return[...updated,newInv];
+        }
+
+        return[...prev,newInv];
+      });
     }
     if(status==="Abandon"||status==="Exclusion"){
       const enr=enrollments.find(e=>e.id===eid);if(enr)set.setClasses(p=>p.map(c=>c.id===enr.classId?{...c,enrolled:Math.max(0,c.enrolled-1)}:c));
