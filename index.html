@@ -987,7 +987,9 @@ function InscriptionsPage({D,set}){
     const st={id:form.id,prenom:form.prenom,nom:form.nom,dob:form.dob,genre:form.genre,adresse:form.adresse,cp:form.cp,ville:form.ville,email:form.email,tel:form.tel,ine:form.ine,rep1:form.rep1,rep2:form.rep2||{},status:"Actif",createdAt:today()};
     set.setStudents(p=>[...p,st]);
     // Create enrollments for each selected class
+    // Pré-générer les IDs d'inscription pour les référencer dans la facture
     const newEnrs=form.selectedClasses.map(cid=>({id:uid(),studentId:form.id,classId:cid,status:"Préinscription",date:today()}));
+    const newEnrIds=newEnrs.map(e=>e.id);
     set.setEnrollments(p=>[...p,...newEnrs]);
     // If also teacher, create teacher record
     if(form.isAlsoTeacher){set.setTeachers(p=>[...p,{id:uid(),name:`${form.prenom} ${form.nom}`,subjectIds:form.teacherSubjects||[],phone:form.tel,email:form.email,studentId:form.id}]);}
@@ -1014,7 +1016,7 @@ function InscriptionsPage({D,set}){
       // Admin manual remises
       if(user.role==="admin")(form.selectedRemises||[]).forEach(rid=>{const r=rem.find(x=>x.id===rid);if(r)itemsNI.push({label:r.label,amount:r.amount});});
       const totalNI=itemsNI.reduce((s,i)=>s+i.amount,0);
-      set.setInvoices(p=>[...p,{id:uid(),studentId:form.id,enrollmentIds:form.selectedClasses,items:itemsNI,total:totalNI,paid:0,status:"Impayée",payments:[],schedule:[]}]);
+      set.setInvoices(p=>[...p,{id:uid(),studentId:form.id,enrollmentIds:newEnrIds,items:itemsNI,total:totalNI,paid:0,status:"Impayée",payments:[],schedule:[]}]);
       // Mise à jour rétroactive des aînés
       const totalFamNI=fratrieNew.length+1;
       if(fratrieNew.length>0){
@@ -1140,25 +1142,40 @@ function InscriptionsPage({D,set}){
     if(status==="Inscription acceptée"){
       const enr=enrollments.find(e=>e.id===eid);if(!enr)return;
       set.setClasses(p=>p.map(c=>c.id===enr.classId?{...c,enrolled:c.enrolled+1}:c));
-      // Auto-invoice if not already invoiced
+      // Facture : si elle existe déjà (créée lors de l'inscription), la lier à cet enrollment.
+      // Si elle n'existe pas encore, la créer (cas d'une validation directe sans passer par le formulaire).
       const cl=classes.find(c=>c.id===enr.classId);if(!cl)return;
-      const tarifKey=getClassTarifKey(cl.label)||cl.matiere;
-      const t=tarifs[tarifKey]!==undefined?tarifs[tarifKey]:150;
-      const autoLivre=getAutoLivre(cl.label);
-      const existingInv=invoices.find(i=>i.studentId===enr.studentId&&i.enrollmentIds.includes(eid));
-      if(!existingInv){
+      const anyExistingInv=invoices.find(i=>i.studentId===enr.studentId);
+      if(anyExistingInv){
+        // Facture déjà créée — ajouter l'eid aux enrollmentIds si absent
+        if(!anyExistingInv.enrollmentIds.includes(eid)){
+          set.setInvoices(p=>p.map(i=>i.id===anyExistingInv.id
+            ?{...i,enrollmentIds:[...i.enrollmentIds,eid]}:i));
+        }
+        // Pas de création de facture supplémentaire
+      } else {
+        // Aucune facture — créer avec remise famille
+        const tarifKey=getClassTarifKey(cl.label)||cl.matiere;
+        const t=tarifs[tarifKey]!==undefined?tarifs[tarifKey]:150;
+        const autoLivre=getAutoLivre(cl.label);
         const allEnrs=enrollments.filter(e=>e.studentId===enr.studentId&&e.status==="Inscription acceptée");
         const matieres=new Set(allEnrs.map(e=>{const c2=classes.find(c=>c.id===e.classId);return c2?.matiere}).filter(Boolean));
         matieres.add(cl.matiere);
         const fdDossier=tarifs["Frais de dossier"]!==undefined?tarifs["Frais de dossier"]:15;
         const items=[{label:tarifKey,amount:t},{label:"Frais de dossier",amount:fdDossier}];
         if(autoLivre&&tarifs[autoLivre]!==undefined)items.push({label:autoLivre,amount:tarifs[autoLivre]});
-        // Auto-remises from state
-        const autoR=(D.remises||[]).filter(r=>r.auto&&r.condition);
-        autoR.forEach(r=>{
+        const rem=D.remises||[];
+        rem.filter(r=>r.auto&&r.condition).forEach(r=>{
           if(r.condition==="arabe+si"&&matieres.has("Arabe")&&matieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
           else if(r.condition==="arabe+coran"&&matieres.has("Arabe")&&matieres.has("Coran"))items.push({label:r.label,amount:r.amount});
         });
+        // Remise famille
+        const stCS=students.find(s=>s.id===enr.studentId);
+        if(stCS){
+          const fratrieCS=detectFratrie(stCS,students);
+          const famRemCS=getFamilleRemise(fratrieCS.length,rem);
+          if(famRemCS)items.push({label:famRemCS.label,amount:famRemCS.amount});
+        }
         const total=items.reduce((s,i)=>s+i.amount,0);
         set.setInvoices(p=>[...p,{id:uid(),studentId:enr.studentId,enrollmentIds:[eid],items,total,paid:0,status:"Impayée",payments:[],schedule:[]}]);
       }
