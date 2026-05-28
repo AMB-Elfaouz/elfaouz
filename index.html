@@ -2764,7 +2764,7 @@ function Bulletins({D,set}){
       <table style={{width:"100%",marginTop:10,background:"rgba(255,255,255,0.6)",borderRadius:4}}><tbody>
         <tr><td style={{padding:"5px 10px"}}><strong>{b.student.nom.toUpperCase()}</strong> <strong style={{marginLeft:12}}>{b.student.prenom}</strong></td><td style={{padding:"5px 10px",textAlign:"right"}} dir="rtl">{"اسم التِّلمِيذ(ة)"}</td></tr>
         <tr><td style={{padding:"5px 10px"}}><strong>{b.classLabel} T{trimestre}</strong></td><td style={{padding:"5px 10px",textAlign:"right"}} dir="rtl">{"الصَّفّ"}</td></tr>
-        <tr><td style={{padding:"5px 10px"}}><strong>{b.teacher?.name||"--"}</strong></td><td style={{padding:"5px 10px",textAlign:"right"}} dir="rtl">{"المدرِّس(ة)"}</td></tr>
+        <tr><td style={{padding:"5px 10px"}}><strong>{(b.teacherList&&b.teacherList.length>0?b.teacherList.map(t=>t.name).join(' / '):b.teacher?.name)||"--"}</strong></td><td style={{padding:"5px 10px",textAlign:"right"}} dir="rtl">{(b.teacherList&&b.teacherList.length>1)?"المدرِّسان":"المدرِّس(ة)"}</td></tr>
       </tbody></table></div>
     <div style={{padding:"16px 18px",flex:1,display:"flex",flexDirection:"column"}}>
       <table style={{width:"100%",borderCollapse:"collapse",marginBottom:14}}><thead><tr style={{background:"#f3f3f3"}}>
