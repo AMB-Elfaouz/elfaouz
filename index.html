@@ -629,7 +629,7 @@ function EmptyState({icon,text}){return <div className="bg-white rounded-xl bord
 ═══════════════════════════════════════════════════════════════*/
 function Sidebar({page,setPage,user,onLogout,notifCount}){
   const nav=[
-    {id:"dashboard",icon:"📊",label:"Tableau de bord",roles:["admin","secretariat"]},
+    {id:"dashboard",icon:"📊",label:"Tableau de bord",roles:["admin","secretariat","benevole"]},
     {id:"inscriptions",icon:"✍️",label:"Inscriptions",roles:["admin","secretariat","benevole"]},
     {id:"classes",icon:"📚",label:"Classes & Quotas",roles:["admin","secretariat"]},
     {id:"payments",icon:"💳",label:"Paiements",roles:["admin","secretariat"]},
@@ -835,7 +835,8 @@ function LoginPage({onLogin,accounts}){
   DASHBOARD
 ═══════════════════════════════════════════════════════════════*/
 function DashboardPage({D}){
-  const {classes,students,enrollments,invoices,redlist,sanctions,absences,teachers}=D;
+  const {classes,students,enrollments,invoices,redlist,sanctions,absences,teachers,user}=D;
+  const isBenevole=user?.role==="benevole";
   const tP=classes.reduce((s,c)=>s+c.quota,0),tE=classes.reduce((s,c)=>s+c.enrolled,0);
   const paid=invoices.reduce((s,i)=>s+i.paid,0),due=invoices.reduce((s,i)=>s+(i.total-i.paid),0);
   const pm={};invoices.forEach(i=>(i.payments||[]).forEach(p=>{if(p.amount>0)pm[p.method]=(pm[p.method]||0)+p.amount}));
@@ -864,9 +865,9 @@ function DashboardPage({D}){
     <div><h2 className="text-2xl font-bold text-gray-900">Tableau de bord</h2><p className="text-sm text-gray-500">Année 2025-2026</p></div>
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <SC icon="👥" label="Élèves" value={tE} sub={`/${tP} places`} color="#047857"/>
-      <SC icon="💰" label="Encaissé" value={`${paid.toLocaleString()}€`} sub={`${due.toLocaleString()}€ dû`} color="#d97706"/>
+      {!isBenevole&&<SC icon="💰" label="Encaissé" value={`${paid.toLocaleString()}€`} sub={`${due.toLocaleString()}€ dû`} color="#d97706"/>}
       <SC icon="🚫" label="Liste rouge" value={redlist.length} color="#dc2626"/>
-      <SC icon="⚖️" label="Colles aujourd'hui" value={todayS.length} color="#7c3aed"/>
+      {!isBenevole&&<SC icon="⚖️" label="Colles aujourd'hui" value={todayS.length} color="#7c3aed"/>}
     </div>
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       {/* Remplissage PAR CLASSE */}
@@ -879,10 +880,10 @@ function DashboardPage({D}){
           </div>})}</div></div>
     </div>
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm"><h3 className="text-sm font-bold text-gray-900 mb-4">Paiements par mode</h3>
-        {pmD.length>0?<SimplePie data={pmD}/>:<p className="text-sm text-gray-400 text-center py-8">Aucun paiement</p>}</div>
+      {!isBenevole&&<div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm"><h3 className="text-sm font-bold text-gray-900 mb-4">Paiements par mode</h3>
+        {pmD.length>0?<SimplePie data={pmD}/>:<p className="text-sm text-gray-400 text-center py-8">Aucun paiement</p>}</div>}
       {/* Colles du jour — détaillé */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+      {!isBenevole&&<div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
         <h3 className="text-sm font-bold text-gray-900 mb-3">⚖️ Colles du jour ({todayS.length})</h3>
         {todayS.length===0?<p className="text-sm text-gray-400">Aucune colle prévue aujourd'hui</p>:
         <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-gray-200">
@@ -904,7 +905,7 @@ function DashboardPage({D}){
             <td className="py-1.5">{teacher?.name||"—"}</td>
             <td className="py-1.5">{supervisor?.name||"—"}</td>
             <td className="py-1.5 text-gray-600">{s.reason}</td></tr>})}</tbody></table></div>}
-      </div>
+      </div>}
     </div>
     {/* Absence alerts: 3+ unjustified absences */}
     {absenceAlerts.length>0&&<div className="bg-red-50 border-2 border-red-500 rounded-xl p-4 space-y-3">
@@ -995,21 +996,23 @@ function InscriptionsPage({D,set}){
       const removeIds=new Set(toRemove.map(e=>e.id));
       set.setEnrollments(p=>p.filter(e=>!removeIds.has(e.id)));
     }
-    // Créer ou mettre à jour la facture si extras/remises sélectionnés
-    if((form.selectedExtras&&form.selectedExtras.length>0)||(form.selectedRemises&&form.selectedRemises.length>0)||form.generateInvoice){
+    // Create or update invoice if extras/remises selected OR auto-livres exist
+    const autoLivresInv=[...new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
+    if((form.selectedExtras&&form.selectedExtras.length>0)||(form.selectedRemises&&form.selectedRemises.length>0)||form.generateInvoice||autoLivresInv.length>0){
       const tar=tarifs;const rem=D.remises||[];
       const selectedMatieres=new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
       const items=[];
       if(tar["Frais de dossier"]!==undefined)items.push({label:"Frais de dossier",amount:tar["Frais de dossier"]});
       selectedMatieres.forEach(m=>{if(tar[m]!==undefined)items.push({label:m,amount:tar[m]})});
+      autoLivresInv.forEach(key=>{if(tar[key]!==undefined)items.push({label:key,amount:tar[key]})});
       (form.selectedExtras||[]).forEach(key=>{if(tar[key]!==undefined)items.push({label:key,amount:tar[key]})});
       // Auto-remises
       rem.filter(r=>r.auto&&r.condition).forEach(r=>{
         if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
         else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))items.push({label:r.label,amount:r.amount});
       });
-      // Manual remises
-      (form.selectedRemises||[]).forEach(rid=>{const r=rem.find(x=>x.id===rid);if(r)items.push({label:r.label,amount:r.amount});});
+      // Manual remises (admin only)
+      if(user.role==="admin")(form.selectedRemises||[]).forEach(rid=>{const r=rem.find(x=>x.id===rid);if(r)items.push({label:r.label,amount:r.amount});});
       const total=items.reduce((s,i)=>s+i.amount,0);
       // Check if invoice already exists for this student
       const existingInv=invoices.find(i=>i.studentId===form.id);
@@ -1151,22 +1154,24 @@ function InscriptionsPage({D,set}){
       <ImportStudents D={D} set={set} onDone={()=>setShowImport(false)}/>
     </Modal>
     <Modal open={!!editStudent} onClose={()=>setEditStudent(null)} title={editStudent?`Modifier — ${editStudent.prenom} ${editStudent.nom}`:""} wide>
-      {editStudent&&<EditStudentModal student={editStudent} classes={classes} enrollments={enrollments} invoices={invoices} tarifs={tarifs} remises={D.remises} onSave={handleEditStudent} onCancel={()=>setEditStudent(null)}/>}
+      {editStudent&&<EditStudentModal student={editStudent} classes={classes} enrollments={enrollments} invoices={invoices} tarifs={tarifs} remises={D.remises} user={user} onSave={handleEditStudent} onCancel={()=>setEditStudent(null)}/>}
     </Modal>
   </div>;
 }
 
-function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,onSave,onCancel}){
+function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,user,onSave,onCancel}){
   tarifs=tarifs||{};remises=remises||[];invoices=invoices||[];
+  const isAdmin=user?.role==="admin";
+  const isBenevole=user?.role==="benevole";
   const currentEnrs=enrollments.filter(e=>e.studentId===student.id);
   const currentClassIds=currentEnrs.map(e=>e.classId);
   // Précharger extras/remises depuis la facture existante si elle existe
   const existingInv=invoices.find(i=>i.studentId===student.id);
-  const classeMatieres=new Set(classes.map(c=>c.matiere));
-  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k));
-  const manualRemises=remises.filter(r=>!r.auto);
-  const initExtras=existingInv?(existingInv.items||[]).map(i=>i.label).filter(k=>extras.some(([ek])=>ek===k)):[];
-  const initRemises=existingInv?(existingInv.items||[]).map(i=>i.label).filter(lbl=>manualRemises.some(r=>r.label===lbl)).map(lbl=>manualRemises.find(r=>r.label===lbl)?.id).filter(Boolean):[];
+  const _classeMatieres0=new Set(classes.map(c=>c.matiere));
+  const _allExtras0=Object.entries(tarifs).filter(([k])=>!_classeMatieres0.has(k));
+  const _manualRemises0=remises.filter(r=>!r.auto);
+  const initExtras=existingInv?(existingInv.items||[]).map(i=>i.label).filter(k=>_allExtras0.some(([ek])=>ek===k)):[];
+  const initRemises=existingInv?(existingInv.items||[]).map(i=>i.label).filter(lbl=>_manualRemises0.some(r=>r.label===lbl)).map(lbl=>_manualRemises0.find(r=>r.label===lbl)?.id).filter(Boolean):[];
   const [f,sF]=useState({
     prenom:student.prenom||"",nom:student.nom||"",dob:student.dob||"",genre:student.genre||"M",
     email:student.email||"",tel:student.tel||"",adresse:student.adresse||"",cp:student.cp||"",ville:student.ville||"",
@@ -1191,18 +1196,28 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,o
   const toggleRemise=(rid)=>sF(p=>({...p,selectedRemises:p.selectedRemises.includes(rid)?p.selectedRemises.filter(x=>x!==rid):[...p.selectedRemises,rid],generateInvoice:true}));
   const grouped={};classes.forEach(c=>{if(!grouped[c.matiere])grouped[c.matiere]=[];grouped[c.matiere].push(c)});
 
+  // Auto-livres calculés à partir des classes sélectionnées
+  const autoLivresEdit=[...new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
+
+  // Extras = tarifs NOT matières, NOT frais dossier, NOT auto-livres
+  const classeMatieres=new Set(classes.map(c=>c.matiere));
+  const autoLivresEditSet=new Set(autoLivresEdit);
+  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k)&&k!=="Frais de dossier"&&!autoLivresEditSet.has(k));
+  const manualRemises=remises.filter(r=>!r.auto);
+
   // Calcul total estimé
   const selectedMatieres=new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
   const autoRemises=remises.filter(r=>r.auto&&r.condition);
   let estTotal=0;
   if(tarifs["Frais de dossier"]!==undefined)estTotal+=tarifs["Frais de dossier"];
   selectedMatieres.forEach(m=>{if(tarifs[m]!==undefined)estTotal+=tarifs[m]});
-  f.selectedExtras.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
+  autoLivresEdit.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
+  if(!isBenevole)f.selectedExtras.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
   autoRemises.forEach(r=>{
     if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))estTotal+=r.amount;
     else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))estTotal+=r.amount;
   });
-  f.selectedRemises.forEach(rid=>{const r=remises.find(x=>x.id===rid);if(r)estTotal+=r.amount;});
+  if(isAdmin)f.selectedRemises.forEach(rid=>{const r=remises.find(x=>x.id===rid);if(r)estTotal+=r.amount;});
 
   return <div className="space-y-4">
     <p className="text-xs text-gray-500 font-medium uppercase tracking-wide border-b pb-1">Informations élève</p>
@@ -1260,7 +1275,7 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,o
       </div>
     </div>
 
-    {extras.length>0&&<div>
+    {extras.length>0&&!isBenevole&&<div>
       <p className="text-xs text-gray-500 font-medium uppercase tracking-wide border-b pb-1 mb-3">🧾 Frais supplémentaires</p>
       <div className="grid grid-cols-2 gap-1 border border-gray-200 rounded-lg p-3">
         {extras.map(([key,val])=>{const sel=f.selectedExtras.includes(key);return <button key={key} type="button" onClick={()=>toggleExtra(key)}
@@ -1270,8 +1285,8 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,o
       </div>
     </div>}
 
-    {manualRemises.length>0&&<div>
-      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide border-b pb-1 mb-3">🏷️ Remises manuelles</p>
+    {manualRemises.length>0&&isAdmin&&<div>
+      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide border-b pb-1 mb-3">🏷️ Remise spéciale (admin)</p>
       <div className="grid grid-cols-2 gap-1 border border-gray-200 rounded-lg p-3">
         {manualRemises.map(r=>{const sel=f.selectedRemises.includes(r.id);return <button key={r.id} type="button" onClick={()=>toggleRemise(r.id)}
           className={`text-left p-2 rounded-lg border text-xs transition ${sel?"border-purple-500 bg-purple-50":"border-gray-200 hover:border-gray-300"}`}>
@@ -1284,9 +1299,10 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,o
       <p className="text-xs text-gray-600 font-semibold uppercase mb-1">Récapitulatif facture</p>
       {tarifs["Frais de dossier"]!==undefined&&<div className="flex justify-between text-xs"><span className="text-gray-600">Frais de dossier</span><span>{tarifs["Frais de dossier"]}€</span></div>}
       {[...selectedMatieres].map(m=>tarifs[m]!==undefined&&<div key={m} className="flex justify-between text-xs"><span className="text-gray-600">{m}</span><span>{tarifs[m]}€</span></div>)}
-      {f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
+      {autoLivresEdit.map(key=>tarifs[key]!==undefined&&<div key={key} className="flex justify-between text-xs text-blue-700"><span>📚 {key} <span className="text-[9px] text-blue-400">(inclus auto)</span></span><span>{tarifs[key]}€</span></div>)}
+      {!isBenevole&&f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoRemises.filter(r=>{if(r.condition==="arabe+si")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques");if(r.condition==="arabe+coran")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran");return false;}).map(r=><div key={r.id} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
-      {f.selectedRemises.map(rid=>{const r=remises.find(x=>x.id===rid);return r&&<div key={rid} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>;})}
+      {isAdmin&&f.selectedRemises.map(rid=>{const r=remises.find(x=>x.id===rid);return r&&<div key={rid} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>;})}
       <div className="flex justify-between text-sm font-bold text-emerald-800 pt-1 border-t border-emerald-200"><span>Total estimé</span><span>{estTotal}€</span></div>
       {existingInv?<p className="text-[10px] text-blue-600 mt-1">ℹ️ Une facture existe déjà — elle sera mise à jour avec ces éléments.</p>:<p className="text-[10px] text-emerald-600 mt-1">💡 Une facture sera créée automatiquement si vous ajoutez des frais ou remises.</p>}
     </div>}
@@ -1533,6 +1549,18 @@ function ImportStudents({D,set,onDone}){
   </div>;
 }
 
+function getAutoLivre(classLabel){
+  if(!classLabel)return null;
+  if(/Arabe Adulte/i.test(classLabel))return "Livre Arabe Adulte";
+  if(/3e.* Arabe/i.test(classLabel))return "Livre Arabe 3è";
+  if(/2eS Arabe|2ES Arabe/i.test(classLabel))return "Livre Arabe 2èS";
+  if(/2e.* Arabe/i.test(classLabel))return "Livre Arabe 2è";
+  if(/1er Arabe|1ère Arabe/i.test(classLabel))return "Livre Arabe 1er";
+  if(/Coran Enfant/i.test(classLabel))return "Livre Coran Enfant";
+  if(/Coran/i.test(classLabel))return "Livre Coran Juz Amma";
+  return null;
+}
+
 function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubmit,onCancel}){
   const [f,sF]=useState({id:uid(),prenom:"",nom:"",dob:"",genre:"M",adresse:"",cp:"",ville:"",email:"",tel:"",ine:"",rep1:{type:"Tuteur",nom:"",prenom:""},rep2:{type:"",nom:"",prenom:""},selectedClasses:[],selectedExtras:[],selectedRemises:[],isAlsoTeacher:false,teacherSubjects:[]});
   const u=(k,v)=>sF(p=>({...p,[k]:v}));
@@ -1541,6 +1569,7 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
   const toggleRemise=(rid)=>sF(p=>({...p,selectedRemises:p.selectedRemises.includes(rid)?p.selectedRemises.filter(x=>x!==rid):[...p.selectedRemises,rid]}));
   const isRedlisted=f.nom&&f.prenom&&f.dob&&(redlist||[]).some(r=>r.nom&&r.prenom&&r.dob&&r.nom.toLowerCase()===f.nom.toLowerCase()&&r.prenom.toLowerCase()===f.prenom.toLowerCase()&&r.dob===f.dob);
   const isAdmin=user?.role==="admin";
+  const isBenevole=user?.role==="benevole";
   const canSubmit=f.prenom&&f.nom&&f.selectedClasses.length>0&&(!isRedlisted||isAdmin);
   const [redAlerted,setRedAlerted]=useState(false);
   useEffect(()=>{if(isRedlisted&&!redAlerted){setRedAlerted(true);
@@ -1550,9 +1579,13 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
   const avail=classes.filter(c=>c.enrolled<c.quota);
   const grouped={};avail.forEach(c=>{if(!grouped[c.matiere])grouped[c.matiere]=[];grouped[c.matiere].push(c)});
 
-  // Extras = tarifs entries that are NOT matières de classe (not in any class matiere)
+  // Auto-livres calculés à partir des classes sélectionnées
+  const autoLivres=[...new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
+
+  // Extras = tarifs entries NOT matières, NOT frais dossier (auto), NOT auto-livres
   const classeMatieres=new Set(classes.map(c=>c.matiere));
-  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k));
+  const autoLivresSet=new Set(autoLivres);
+  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k)&&k!=="Frais de dossier"&&!autoLivresSet.has(k));
 
   // Estimated total calculation
   const selectedMatieres=new Set(f.selectedClasses.map(cid=>{const c=classes.find(c=>c.id===cid);return c?.matiere}).filter(Boolean));
@@ -1560,16 +1593,18 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
   // Frais de dossier (always, if in tarifs)
   if(tarifs["Frais de dossier"]!==undefined)estTotal+=tarifs["Frais de dossier"];
   selectedMatieres.forEach(m=>{if(tarifs[m]!==undefined)estTotal+=tarifs[m]});
-  // Add selected extras
-  f.selectedExtras.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
+  // Auto-livres
+  autoLivres.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
+  // Add selected extras (only for non-benevole)
+  if(!isBenevole)f.selectedExtras.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
   // Auto-remises from state
   const autoRemises=(remises||[]).filter(r=>r.auto&&r.condition);
   autoRemises.forEach(r=>{
     if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))estTotal+=r.amount;
     else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))estTotal+=r.amount;
   });
-  // Manual remises selected by user
-  f.selectedRemises.forEach(rid=>{const r=(remises||[]).find(x=>x.id===rid);if(r)estTotal+=r.amount;});
+  // Manual remises selected by admin only
+  if(isAdmin)f.selectedRemises.forEach(rid=>{const r=(remises||[]).find(x=>x.id===rid);if(r)estTotal+=r.amount;});
 
   const manualRemises=(remises||[]).filter(r=>!r.auto);
 
@@ -1594,7 +1629,7 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
             {sel&&<span className="float-right text-emerald-600 font-bold">✓</span>}</button>})}</div></div>)}
     </div>
 
-    {extras.length>0&&<div>
+    {extras.length>0&&!isBenevole&&<div>
       <p className="text-xs text-gray-500 font-medium uppercase mb-2">🧾 Frais supplémentaires</p>
       <div className="grid grid-cols-2 gap-1 border border-gray-200 rounded-lg p-3">
         {extras.map(([key,val])=>{const sel=f.selectedExtras.includes(key);return <button key={key} type="button" onClick={()=>toggleExtra(key)}
@@ -1603,8 +1638,8 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
           {sel&&<span className="float-right text-amber-600 font-bold">✓</span>}</button>;})}
       </div></div>}
 
-    {manualRemises.length>0&&<div>
-      <p className="text-xs text-gray-500 font-medium uppercase mb-2">🏷️ Remises manuelles</p>
+    {manualRemises.length>0&&isAdmin&&<div>
+      <p className="text-xs text-gray-500 font-medium uppercase mb-2">🏷️ Remise spéciale (admin)</p>
       <div className="grid grid-cols-2 gap-1 border border-gray-200 rounded-lg p-3">
         {manualRemises.map(r=>{const sel=f.selectedRemises.includes(r.id);return <button key={r.id} type="button" onClick={()=>toggleRemise(r.id)}
           className={`text-left p-2 rounded-lg border text-xs transition ${sel?"border-purple-500 bg-purple-50":"border-gray-200 hover:border-gray-300"}`}>
@@ -1616,9 +1651,10 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
       <p className="text-xs text-gray-600 font-semibold uppercase mb-1">Récapitulatif</p>
       {tarifs["Frais de dossier"]!==undefined&&<div className="flex justify-between text-xs"><span className="text-gray-600">Frais de dossier</span><span>{tarifs["Frais de dossier"]}€</span></div>}
       {[...selectedMatieres].map(m=>tarifs[m]!==undefined&&<div key={m} className="flex justify-between text-xs"><span className="text-gray-600">{m}</span><span>{tarifs[m]}€</span></div>)}
-      {f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
+      {autoLivres.map(key=>tarifs[key]!==undefined&&<div key={key} className="flex justify-between text-xs text-blue-700"><span>📚 {key} <span className="text-[9px] text-blue-400">(inclus auto)</span></span><span>{tarifs[key]}€</span></div>)}
+      {!isBenevole&&f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoRemises.filter(r=>{if(r.condition==="arabe+si")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques");if(r.condition==="arabe+coran")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran");return false;}).map(r=><div key={r.id} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
-      {f.selectedRemises.map(rid=>{const r=(remises||[]).find(x=>x.id===rid);return r&&<div key={rid} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>;})}
+      {isAdmin&&f.selectedRemises.map(rid=>{const r=(remises||[]).find(x=>x.id===rid);return r&&<div key={rid} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>;})}
       <div className="flex justify-between text-sm font-bold text-emerald-800 pt-1 border-t border-emerald-200"><span>Total estimé</span><span>{estTotal}€</span></div>
     </div>}
 
@@ -1713,19 +1749,26 @@ function PaymentsPage({D,set}){
       }
       const XLSX=window.XLSX;
       const rows=allSchedules.map(sch=>({
-        "Date d'encaissement":String(sch.date||""),
-        "Élève":String(sch.studentName||""),
-        "Montant (€)":Number(sch.amount)||0,
-        "Mode de règlement":String(sch.method||"—"),
-        "N° chèque / Réf.":String(sch.ref||"—"),
+        "Date encaissement":String(sch.date||""),
+        "Eleve":String(sch.studentName||""),
+        "Montant EUR":Number(sch.amount)||0,
+        "Mode reglement":String(sch.method||"-"),
+        "No cheque Ref":String(sch.ref||"-"),
         "Statut":String(sch.status||""),
       }));
       const ws=XLSX.utils.json_to_sheet(rows);
       // Largeurs colonnes
       ws["!cols"]=[{wch:18},{wch:28},{wch:14},{wch:20},{wch:22},{wch:14}];
       const wb=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb,"Échéancier",ws);
-      XLSX.writeFile(wb,"Echeancier_ElFaouz_"+today()+".xlsx");
+      XLSX.utils.book_append_sheet(wb,"Echeancier",ws);
+      // Téléchargement via Blob (plus robuste que writeFile selon les navigateurs)
+      const wbout=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+      const blob=new Blob([wbout],{type:"application/octet-stream"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download="Echeancier_ElFaouz_"+today()+".xlsx";
+      document.body.appendChild(a);a.click();
+      setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a);},1000);
     }catch(e){alert("Erreur export Excel : "+e.message);}
   }
 
