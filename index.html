@@ -982,6 +982,8 @@ function InscriptionsPage({D,set}){
       return;
     }
     // Create student
+    // Détection fratrie avant d'ajouter l'élève (students ne le contient pas encore)
+    const fratrieNew=detectFratrie({id:form.id,nom:form.nom,rep1:form.rep1||{},adresse:form.adresse,cp:form.cp},students);
     const st={id:form.id,prenom:form.prenom,nom:form.nom,dob:form.dob,genre:form.genre,adresse:form.adresse,cp:form.cp,ville:form.ville,email:form.email,tel:form.tel,ine:form.ine,rep1:form.rep1,rep2:form.rep2||{},status:"Actif",createdAt:today()};
     set.setStudents(p=>[...p,st]);
     // Create enrollments for each selected class
@@ -989,6 +991,49 @@ function InscriptionsPage({D,set}){
     set.setEnrollments(p=>[...p,...newEnrs]);
     // If also teacher, create teacher record
     if(form.isAlsoTeacher){set.setTeachers(p=>[...p,{id:uid(),name:`${form.prenom} ${form.nom}`,subjectIds:form.teacherSubjects||[],phone:form.tel,email:form.email,studentId:form.id}]);}
+    // ── Générer la facture avec remise famille ─────────────────────────────
+    {
+      const tar=tarifs;const rem=D.remises||[];
+      const autoLivresNI=[...new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
+      const tarifKeysNI=[...new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getClassTarifKey(c.label):null}).filter(Boolean))];
+      const matieresNI=new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
+      const itemsNI=[];
+      if(tar["Frais de dossier"]!==undefined)itemsNI.push({label:"Frais de dossier",amount:tar["Frais de dossier"]});
+      tarifKeysNI.forEach(k=>{if(tar[k]!==undefined)itemsNI.push({label:k,amount:tar[k]})});
+      autoLivresNI.forEach(k=>{if(tar[k]!==undefined)itemsNI.push({label:k,amount:tar[k]})});
+      // Extras (admin/secrétariat)
+      (form.selectedExtras||[]).forEach(k=>{if(tar[k]!==undefined)itemsNI.push({label:k,amount:tar[k]})});
+      // Auto-remises cours
+      rem.filter(r=>r.auto&&r.condition).forEach(r=>{
+        if(r.condition==="arabe+si"&&matieresNI.has("Arabe")&&matieresNI.has("Sciences Islamiques"))itemsNI.push({label:r.label,amount:r.amount});
+        else if(r.condition==="arabe+coran"&&matieresNI.has("Arabe")&&matieresNI.has("Coran"))itemsNI.push({label:r.label,amount:r.amount});
+      });
+      // Remise famille
+      const famRemNI=getFamilleRemise(fratrieNew.length,rem);
+      if(famRemNI)itemsNI.push({label:famRemNI.label,amount:famRemNI.amount});
+      // Admin manual remises
+      if(user.role==="admin")(form.selectedRemises||[]).forEach(rid=>{const r=rem.find(x=>x.id===rid);if(r)itemsNI.push({label:r.label,amount:r.amount});});
+      const totalNI=itemsNI.reduce((s,i)=>s+i.amount,0);
+      set.setInvoices(p=>[...p,{id:uid(),studentId:form.id,enrollmentIds:form.selectedClasses,items:itemsNI,total:totalNI,paid:0,status:"Impayée",payments:[],schedule:[]}]);
+      // Mise à jour rétroactive des aînés
+      const totalFamNI=fratrieNew.length+1;
+      if(fratrieNew.length>0){
+        const famConditions=new Set(["2enfants","3enfants"]);
+        const famLabels=new Set(rem.filter(r=>r.auto&&famConditions.has(r.condition)).map(r=>r.label));
+        set.setInvoices(prev=>{
+          let upd=[...prev];
+          fratrieNew.forEach(sib=>{
+            const idx=upd.findIndex(i=>i.studentId===sib.id);
+            if(idx===-1)return;
+            const newFamR=getFamilleRemiseByTotal(totalFamNI,rem);
+            const cleaned=upd[idx].items.filter(it=>!famLabels.has(it.label));
+            const newItems=newFamR?[...cleaned,{label:newFamR.label,amount:newFamR.amount}]:cleaned;
+            upd[idx]={...upd[idx],items:newItems,total:newItems.reduce((s,i)=>s+i.amount,0)};
+          });
+          return upd;
+        });
+      }
+    }
     setShowNew(false);
   }
 
@@ -1030,7 +1075,12 @@ function InscriptionsPage({D,set}){
       rem.filter(r=>r.auto&&r.condition).forEach(r=>{
         if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
         else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))items.push({label:r.label,amount:r.amount});
+        // 2enfants / 3enfants évalués ci-dessous via fratrie
       });
+      // ── Remise famille (fratrie) ──────────────────────────────────────────
+      const fratrieCur=detectFratrie({...form,rep1:form.rep1||{}},students);
+      const familleRemCur=getFamilleRemise(fratrieCur.length,rem);
+      if(familleRemCur)items.push({label:familleRemCur.label,amount:familleRemCur.amount});
       // Manual remises (admin only)
       if(user.role==="admin")(form.selectedRemises||[]).forEach(rid=>{const r=rem.find(x=>x.id===rid);if(r)items.push({label:r.label,amount:r.amount});});
       const total=items.reduce((s,i)=>s+i.amount,0);
@@ -1040,6 +1090,30 @@ function InscriptionsPage({D,set}){
         set.setInvoices(p=>p.map(i=>i.id===existingInv.id?{...i,items,total}:i));
       } else {
         set.setInvoices(p=>[...p,{id:uid(),studentId:form.id,enrollmentIds:form.selectedClasses,items,total,paid:0,status:"Impayée",payments:[],schedule:[]}]);
+      }
+      // ── Mise à jour rétroactive des factures des aînés ───────────────────
+      // Quand un Nème enfant est ajouté, on recalcule la remise de toute la fratrie
+      // (ex: le 1er enfant passe de "pas de remise" à "remise 2 enfants")
+      const totalFamilleSize=fratrieCur.length+1;// nouvel élève inclus
+      if(fratrieCur.length>0){
+        set.setInvoices(prev=>{
+          let updated=[...prev];
+          fratrieCur.forEach(sibling=>{
+            const sInvIdx=updated.findIndex(i=>i.studentId===sibling.id);
+            if(sInvIdx===-1)return;
+            const sInv=updated[sInvIdx];
+            // Recalculer la remise famille pour ce sibling
+            const newFamRem=getFamilleRemiseByTotal(totalFamilleSize,rem);
+            // Retirer toute remise famille existante, puis rajouter la bonne
+            const familleConditions=new Set(["2enfants","3enfants"]);
+            const famRemLabels=new Set(rem.filter(r=>r.auto&&familleConditions.has(r.condition)).map(r=>r.label));
+            const cleanItems=sInv.items.filter(it=>!famRemLabels.has(it.label));
+            const newItems=newFamRem?[...cleanItems,{label:newFamRem.label,amount:newFamRem.amount}]:cleanItems;
+            const newTotal=newItems.reduce((s,i)=>s+i.amount,0);
+            updated[sInvIdx]={...sInv,items:newItems,total:newTotal};
+          });
+          return updated;
+        });
       }
     }
     setEditStudent(null);
@@ -1158,7 +1232,7 @@ function InscriptionsPage({D,set}){
       </tbody></table></div>
 
     <Modal open={showNew} onClose={()=>setShowNew(false)} title="Nouvelle inscription — Panier multi-matières" wide>
-      <NewInscriptionForm classes={classes} subjects={D.subjects} tarifs={tarifs} remises={D.remises} redlist={redlist} user={user} onSubmit={handleNewInscription} onCancel={()=>setShowNew(false)}/>
+      <NewInscriptionForm classes={classes} students={students} subjects={D.subjects} tarifs={tarifs} remises={D.remises} redlist={redlist} user={user} onSubmit={handleNewInscription} onCancel={()=>setShowNew(false)}/>
     </Modal>
     <Modal open={!!detail} onClose={()=>setDetail(null)} title={detail?`${detail.prenom} ${detail.nom}`:""} wide>
       {detail&&<div className="space-y-3 text-sm">
@@ -1175,12 +1249,12 @@ function InscriptionsPage({D,set}){
       <ImportStudents D={D} set={set} onDone={()=>setShowImport(false)}/>
     </Modal>
     <Modal open={!!editStudent} onClose={()=>setEditStudent(null)} title={editStudent?`Modifier — ${editStudent.prenom} ${editStudent.nom}`:""} wide>
-      {editStudent&&<EditStudentModal student={editStudent} classes={classes} enrollments={enrollments} invoices={invoices} tarifs={tarifs} remises={D.remises} user={user} onSave={handleEditStudent} onCancel={()=>setEditStudent(null)}/>}
+      {editStudent&&<EditStudentModal student={editStudent} classes={classes} enrollments={enrollments} invoices={invoices} tarifs={tarifs} remises={D.remises} user={user} allStudents={students} onSave={handleEditStudent} onCancel={()=>setEditStudent(null)}/>}
     </Modal>
   </div>;
 }
 
-function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,user,onSave,onCancel}){
+function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,user,allStudents,onSave,onCancel}){
   tarifs=tarifs||{};remises=remises||[];invoices=invoices||[];
   const isAdmin=user?.role==="admin";
   const isBenevole=user?.role==="benevole";
@@ -1230,6 +1304,10 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,u
   const selectedMatieres=new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
   const selectedTarifKeysEdit=[...new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getClassTarifKey(c.label):null}).filter(Boolean))];
 
+  // Fratrie pour cet élève (EditStudentModal reçoit enrollments et students via D, passés en props)
+  // On utilise le student courant pour détecter ses frères/sœurs (l'élève est déjà dans la liste)
+  const fratrieEdit=detectFratrie({id:student.id,nom:student.nom,rep1:student.rep1||{},adresse:student.adresse,cp:student.cp},allStudents||[]);
+  const famRemEdit=getFamilleRemise(fratrieEdit.length,remises);
   const autoRemises=remises.filter(r=>r.auto&&r.condition);
   let estTotal=0;
   if(tarifs["Frais de dossier"]!==undefined)estTotal+=tarifs["Frais de dossier"];
@@ -1240,6 +1318,7 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,u
     if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))estTotal+=r.amount;
     else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))estTotal+=r.amount;
   });
+  if(famRemEdit)estTotal+=famRemEdit.amount;
   if(isAdmin)f.selectedRemises.forEach(rid=>{const r=remises.find(x=>x.id===rid);if(r)estTotal+=r.amount;});
 
   return <div className="space-y-4">
@@ -1326,6 +1405,7 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,u
       {!isBenevole&&f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoRemises.filter(r=>{if(r.condition==="arabe+si")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques");if(r.condition==="arabe+coran")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran");return false;}).map(r=><div key={r.id} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
       {isAdmin&&f.selectedRemises.map(rid=>{const r=remises.find(x=>x.id===rid);return r&&<div key={rid} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>;})}
+      {famRemEdit&&<div className="flex justify-between text-xs text-blue-700 font-semibold"><span>👨‍👩‍👧‍👦 {famRemEdit.label} ({fratrieEdit.length} frère(s)/sœur(s))</span><span>{famRemEdit.amount}€</span></div>}
       <div className="flex justify-between text-sm font-bold text-emerald-800 pt-1 border-t border-emerald-200"><span>Total estimé</span><span>{estTotal}€</span></div>
       {existingInv?<p className="text-[10px] text-blue-600 mt-1">ℹ️ Une facture existe déjà — elle sera mise à jour avec ces éléments.</p>:<p className="text-[10px] text-emerald-600 mt-1">💡 Une facture sera créée automatiquement si vous ajoutez des frais ou remises.</p>}
     </div>}
@@ -1593,7 +1673,66 @@ function getAutoLivre(classLabel){
   return null;
 }
 
-function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubmit,onCancel}){
+
+/* ── Détection de fratrie ──────────────────────────────────────────────────
+   Signal 1 (fort)  : même numéro de téléphone représentant 1 (non vide)
+   Signal 2 (moyen) : même nom de famille + même adresse postale (non vides)
+   Signal 3 (faible): même nom de famille + même nom de représentant 1
+   Un élève n'est jamais son propre frère (exclusion par id).
+───────────────────────────────────────────────────────────────────────── */
+function normTel(t){return(t||"").replace(/[^0-9]/g,"");}
+function normStr(s){return(s||"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");}
+
+function detectFratrie(student,allStudents){
+  /* student peut être partiel (en cours de saisie) — on extrait ce qu'on a */
+  const nom=normStr(student.nom);
+  const tel=normTel(student.rep1?.tel||student.tel||"");
+  const adresse=normStr(student.adresse||"");
+  const cp=normStr(student.cp||"");
+  const repNom=normStr(student.rep1?.nom||"");
+
+  if(!nom)return[];
+
+  return (allStudents||[]).filter(s=>{
+    if(s.id===student.id)return false;          // pas soi-même
+    if(normStr(s.nom)!==nom)return false;        // nom différent → pas la même famille
+
+    // Signal 1 — même tél représentant (le plus fiable)
+    const sTel=normTel(s.rep1?.tel||s.tel||"");
+    if(tel&&tel.length>=8&&sTel===tel)return true;
+
+    // Signal 2 — même adresse + CP
+    const sAdr=normStr(s.adresse||"");
+    const sCp=normStr(s.cp||"");
+    if(adresse&&adresse.length>4&&cp&&sAdr===adresse&&sCp===cp)return true;
+
+    // Signal 3 — même nom représentant
+    const sRepNom=normStr(s.rep1?.nom||"");
+    if(repNom&&repNom.length>2&&sRepNom===repNom)return true;
+
+    return false;
+  });
+}
+
+/* Retourne la remise familiale applicable selon le rang du nouvel enfant.
+   rang = nombre de frères/sœurs déjà inscrits (AVANT le nouvel élève).
+   rang=1 → 2ème enfant → remise "2enfants"
+   rang≥2 → 3ème enfant et + → remise "3enfants"   */
+function getFamilleRemise(rang,remises){
+  if(rang<=0)return null;
+  if(rang===1)return(remises||[]).find(r=>r.auto&&r.condition==="2enfants")||null;
+  return(remises||[]).find(r=>r.auto&&r.condition==="3enfants")||null;
+}
+
+/* Recalcule la remise familiale pour un enfant existant selon le nombre total de fratrie.
+   total = nombre total d'enfants dans la famille (incluant cet enfant).  */
+function getFamilleRemiseByTotal(total,remises){
+  if(total<=1)return null;
+  if(total===2)return(remises||[]).find(r=>r.auto&&r.condition==="2enfants")||null;
+  return(remises||[]).find(r=>r.auto&&r.condition==="3enfants")||null;
+}
+
+function NewInscriptionForm({classes,students,subjects,tarifs,remises,redlist,user,onSubmit,onCancel}){
   const [f,sF]=useState({id:uid(),prenom:"",nom:"",dob:"",genre:"M",adresse:"",cp:"",ville:"",email:"",tel:"",ine:"",rep1:{type:"Tuteur",nom:"",prenom:""},rep2:{type:"",nom:"",prenom:""},selectedClasses:[],selectedExtras:[],selectedRemises:[],isAlsoTeacher:false,teacherSubjects:[]});
   const u=(k,v)=>sF(p=>({...p,[k]:v}));
   const toggleClass=(cid)=>sF(p=>({...p,selectedClasses:p.selectedClasses.includes(cid)?p.selectedClasses.filter(x=>x!==cid):[...p.selectedClasses,cid]}));
@@ -1603,6 +1742,9 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
   const isAdmin=user?.role==="admin";
   const isBenevole=user?.role==="benevole";
   const canSubmit=f.prenom&&f.nom&&f.selectedClasses.length>0&&(!isRedlisted||isAdmin);
+  // ── Détection fratrie en temps réel ───────────────────────────────────────
+  const fratrie=detectFratrie(f,students||[]);
+  const fratrieFamilleRemise=getFamilleRemise(fratrie.length,remises);
   const [redAlerted,setRedAlerted]=useState(false);
   useEffect(()=>{if(isRedlisted&&!redAlerted){setRedAlerted(true);
     if(!isAdmin)alert("LISTE ROUGE\n\n"+f.prenom+" "+f.nom+" est en liste rouge.\nInscription bloquee. Contactez le directeur.");
@@ -1635,7 +1777,10 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
   autoRemises.forEach(r=>{
     if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))estTotal+=r.amount;
     else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))estTotal+=r.amount;
+    // Remises famille : évaluées via fratrieFamilleRemise (déjà calculée)
   });
+  // Remise famille automatique
+  if(fratrieFamilleRemise)estTotal+=fratrieFamilleRemise.amount;
   if(isAdmin)f.selectedRemises.forEach(rid=>{const r=(remises||[]).find(x=>x.id===rid);if(r)estTotal+=r.amount;});
 
   const manualRemises=(remises||[]).filter(r=>!r.auto);
@@ -1645,6 +1790,20 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
     <div className="grid grid-cols-3 gap-3"><Inp label="Prénom *" value={f.prenom} onChange={e=>u("prenom",e.target.value)}/><Inp label="Nom *" value={f.nom} onChange={e=>u("nom",e.target.value)}/><Inp label="Date de naissance *" type="date" value={f.dob} onChange={e=>u("dob",e.target.value)}/></div>
     {isRedlisted&&<div className={`p-3 border-2 rounded-lg text-sm font-bold flex items-center gap-2 ${isAdmin?"bg-orange-100 border-orange-500 text-orange-800":"bg-red-100 border-red-500 text-red-800"}`}>
       {isAdmin?<span>LISTE ROUGE - {f.prenom} {f.nom} est signale. Vous pouvez forcer.</span>:<span>LISTE ROUGE - {f.prenom} {f.nom} est bloque. Seul le directeur peut inscrire.</span>}</div>}
+    {/* ── Bannière Fratrie ── */}
+    {fratrie.length>0&&<div className="p-3 rounded-xl border-2 border-blue-400 bg-blue-50 space-y-1.5">
+      <div className="flex items-center gap-2 font-semibold text-blue-800 text-sm">
+        <span>👨‍👩‍👧‍👦</span>
+        <span>Famille détectée — {fratrie.length} frère(s)/sœur(s) déjà inscrit(s)</span>
+        {fratrieFamilleRemise&&<span className="ml-auto px-2 py-0.5 rounded-full bg-blue-200 text-blue-900 text-xs font-bold">{fratrieFamilleRemise.label} {fratrieFamilleRemise.amount}€</span>}
+      </div>
+      <div className="space-y-0.5">
+        {fratrie.map(s=><div key={s.id} className="text-xs text-blue-700 flex items-center gap-1.5">
+          <span>•</span><span className="font-semibold">{s.prenom} {s.nom}</span><span className="text-blue-500">né(e) {s.dob}</span>
+        </div>)}
+      </div>
+      {!fratrieFamilleRemise&&<p className="text-xs text-blue-600">ℹ️ Remise famille non configurée dans les tarifs.</p>}
+    </div>}
     <div className="grid grid-cols-3 gap-3"><Sel label="Genre" value={f.genre} onChange={e=>u("genre",e.target.value)} options={[{value:"M",label:"Masculin"},{value:"F",label:"Féminin"}]}/><Inp label="Email *" type="email" value={f.email} onChange={e=>u("email",e.target.value)}/><Inp label="Téléphone *" value={f.tel} onChange={e=>u("tel",e.target.value)}/></div>
     <div className="grid grid-cols-3 gap-3"><Inp label="Adresse" value={f.adresse} onChange={e=>u("adresse",e.target.value)}/><Inp label="CP" value={f.cp} onChange={e=>u("cp",e.target.value)}/><Inp label="Ville" value={f.ville} onChange={e=>u("ville",e.target.value)}/></div>
     <Sel label="Statut scolaire" value={f.ine} onChange={e=>u("ine",e.target.value)} options={[{value:"",label:"Nouvelle inscription"},{value:"Passage",label:"Passage"},{value:"Redoublement",label:"Redoublement"}]}/>
@@ -1687,6 +1846,7 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
       {!isBenevole&&f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoRemises.filter(r=>{if(r.condition==="arabe+si")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques");if(r.condition==="arabe+coran")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran");return false;}).map(r=><div key={r.id} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
       {isAdmin&&f.selectedRemises.map(rid=>{const r=(remises||[]).find(x=>x.id===rid);return r&&<div key={rid} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>;})}
+      {fratrieFamilleRemise&&<div className="flex justify-between text-xs text-blue-700 font-semibold"><span>👨‍👩‍👧‍👦 {fratrieFamilleRemise.label}</span><span>{fratrieFamilleRemise.amount}€</span></div>}
       <div className="flex justify-between text-sm font-bold text-emerald-800 pt-1 border-t border-emerald-200"><span>Total estimé</span><span>{estTotal}€</span></div>
     </div>}
 
