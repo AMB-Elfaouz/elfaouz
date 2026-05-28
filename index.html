@@ -2665,7 +2665,9 @@ function Bulletins({D,set}){
     const enrs=enrollments.filter(e=>e.studentId===sid&&e.status==="Inscription acceptée");
     const cls=enrs.map(e=>classes.find(c=>c.id===e.classId)).filter(Boolean);
     const targetClassId=selClass||cls[0]?.id;const targetClass=classes.find(c=>c.id===targetClassId);
-    const tch=targetClassId?teachers.find(t=>(t.classIds||[]).includes(targetClassId)):null;
+    // Binôme : récupérer TOUS les enseignants de la classe (double source)
+    const tchList=targetClassId?teachers.filter(t=>(t.classIds||[]).includes(targetClassId)||(targetClass&&(targetClass.teacherIds||[]).includes(t.id))):[];
+    const tch=tchList.length>0?tchList[0]:null;
     const cSids=targetClassId?enrollments.filter(e=>e.classId===targetClassId&&e.status==="Inscription acceptée").map(e=>e.studentId):[];
     // Compute per-subject averages — filtered by trimester
     const stGrades=grades.filter(g=>g.studentId===sid&&g.classId===targetClassId&&isInTrim(g.date));
@@ -2698,7 +2700,7 @@ function Bulletins({D,set}){
     const stRet=absences.filter(a=>a.studentId===sid&&a.classId===targetClassId&&a.type==="retard"&&isInTrim(a.date)).length;
     const sc=stuComments[sid]||{comment:"",appreciation:""};
     const dec=stuDecisions[sid]||"Passage";
-    return{student:s2,classLabel:targetClass?.label||"",teacher:tch,subjectRows,moyGen,classMoyGen,rank,total:classMoys.length,abs:stAbs,ret:stRet,comment:sc.comment,appreciation:sc.appreciation,decision:dec}}
+    return{student:s2,classLabel:targetClass?.label||"",teacher:tch,teacherList:tchList,subjectRows,moyGen,classMoyGen,rank,total:classMoys.length,abs:stAbs,ret:stRet,comment:sc.comment,appreciation:sc.appreciation,decision:dec}}
 
   function subjectRowsHTML(rows,comment){
     let html=`<table style="width:100%;border-collapse:collapse;margin-bottom:14px"><thead><tr style="background:#f3f3f3">
@@ -2724,7 +2726,7 @@ function Bulletins({D,set}){
       <table style="width:100%;margin-top:10px;background:rgba(255,255,255,0.6);border-radius:4px"><tbody>
         <tr><td style="padding:5px 10px"><strong>${b.student.nom.toUpperCase()}</strong> <strong style="margin-left:12px">${b.student.prenom}</strong></td><td style="padding:5px 10px;text-align:right" dir="rtl">اسم التِّلمِيذ(ة)</td></tr>
         <tr><td style="padding:5px 10px"><strong>${b.classLabel} T${trimestre}</strong></td><td style="padding:5px 10px;text-align:right" dir="rtl">الصَّفّ</td></tr>
-        <tr><td style="padding:5px 10px"><strong>${b.teacher?.name||"--"}</strong></td><td style="padding:5px 10px;text-align:right" dir="rtl">المدرِّس(ة)</td></tr>
+        <tr><td style="padding:5px 10px"><strong>${(b.teacherList&&b.teacherList.length>0?b.teacherList.map(t=>t.name).join(' / '):b.teacher?.name)||"--"}</strong></td><td style="padding:5px 10px;text-align:right" dir="rtl">${(b.teacherList&&b.teacherList.length>1)?"المدرِّسان":"المدرِّس(ة)"}</td></tr>
       </tbody></table></div>
     <div style="padding:16px 18px;flex:1;display:flex;flex-direction:column">
       ${subjectRowsHTML(b.subjectRows,b.comment)}
