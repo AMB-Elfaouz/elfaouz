@@ -177,15 +177,33 @@ const SEED_ACCOUNTS=[
   {id:"u29",login:"yacoubi.fatiha",password:"elfaouz2025",name:"YACOUBI FATIHA",role:"enseignant",email:"",teacherId:"t27"},
   {id:"u30",login:"zaoui.ilyes",password:"elfaouz2025",name:"ZAOUI ILYES",role:"enseignant",email:"",teacherId:"t28"},
 ];
-const DEFAULT_TARIFS={"Arabe":350,"Coran":150,"Coran Enfant":135,"Coran Mamie":135,"Sciences Islamiques":150,"Frais de dossier":15,"Livre Arabe 1er":4,"Livre Arabe 2è":8,"Livre Arabe 2èS":14,"Livre Arabe 3è":20,"Livre Arabe Adulte":18,"Livre Coran Enfant":5,"Livre Coran Juz Amma":1.5};
+const DEFAULT_TARIFS={
+  // ── Inscriptions par type de cours ──────────────────────────────
+  "Arabe":360,
+  "Coran Enfant":150,
+  "Coran Ados Adultes":200,
+  "Coran Mamie":135,
+  "Sciences Islamiques":200,
+  // ── Frais fixes ─────────────────────────────────────────────────
+  "Frais de dossier":15,
+  // ── Livres Arabe (selon niveau) ─────────────────────────────────
+  "Livre Arabe 1er":5,
+  "Livre Arabe 2è":8,
+  "Livre Arabe 2èS":14,
+  "Livre Arabe 3è":20,
+  "Livre Arabe Adulte":18,
+  // ── Livres Coran ────────────────────────────────────────────────
+  "Livre Coran Enfant":5,
+};
+
 const DEFAULT_REMISES=[
   {id:"r1",label:"Remise 2 enfants",amount:-10,auto:true,condition:"2enfants"},
   {id:"r2",label:"Remise 3 enfants",amount:-25,auto:true,condition:"3enfants"},
   {id:"r3",label:"Remise Arabe + SI",amount:-40,auto:true,condition:"arabe+si"},
   {id:"r4",label:"Remise Arabe + Coran",amount:-40,auto:true,condition:"arabe+coran"},
 ];
-const LIVRES=[{label:"Livre Arabe 1er",price:4},{label:"Livre Arabe 2è",price:8},{label:"Livre Arabe 2èS",price:14},{label:"Livre Arabe 3è",price:20},
-  {label:"Livre Arabe Adulte",price:18},{label:"Livre Coran Enfant",price:5},{label:"Livre Coran Juz Amma",price:1.5}];
+const LIVRES=[{label:"Livre Arabe 1er",price:5},{label:"Livre Arabe 2è",price:8},{label:"Livre Arabe 2èS",price:14},{label:"Livre Arabe 3è",price:20},
+  {label:"Livre Arabe Adulte",price:18},{label:"Livre Coran Enfant",price:5}];
 const PIE_COLORS=["#047857","#d97706","#2563eb","#7c3aed","#dc2626","#ea580c"];
 const uid=()=>Math.random().toString(36).slice(2,10);
 const today=()=>new Date().toISOString().slice(0,10);
@@ -640,6 +658,7 @@ function Sidebar({page,setPage,user,onLogout,notifCount}){
     {id:"teachers",icon:"👨‍🏫",label:"Enseignants",roles:["admin"]},
     {id:"redlist",icon:"🚫",label:"Liste Rouge",roles:["admin","secretariat"]},
     {id:"reports",icon:"📄",label:"Rapports",roles:["admin","secretariat"]},
+    {id:"tarifs",icon:"💶",label:"Tarifs & Remises",roles:["admin"]},
     {id:"settings",icon:"⚙️",label:"Paramètres",roles:["admin"]},
   ];
   return <div className="w-56 bg-gray-950 text-white flex flex-col h-screen fixed left-0 top-0 z-40 no-print">
@@ -998,12 +1017,13 @@ function InscriptionsPage({D,set}){
     }
     // Create or update invoice if extras/remises selected OR auto-livres exist
     const autoLivresInv=[...new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
-    if((form.selectedExtras&&form.selectedExtras.length>0)||(form.selectedRemises&&form.selectedRemises.length>0)||form.generateInvoice||autoLivresInv.length>0){
+    const selectedTarifKeysInv=[...new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getClassTarifKey(c.label):null}).filter(Boolean))];
+    if((form.selectedExtras&&form.selectedExtras.length>0)||(form.selectedRemises&&form.selectedRemises.length>0)||form.generateInvoice||autoLivresInv.length>0||selectedTarifKeysInv.length>0){
       const tar=tarifs;const rem=D.remises||[];
       const selectedMatieres=new Set(form.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
       const items=[];
       if(tar["Frais de dossier"]!==undefined)items.push({label:"Frais de dossier",amount:tar["Frais de dossier"]});
-      selectedMatieres.forEach(m=>{if(tar[m]!==undefined)items.push({label:m,amount:tar[m]})});
+      selectedTarifKeysInv.forEach(key=>{if(tar[key]!==undefined)items.push({label:key,amount:tar[key]})});
       autoLivresInv.forEach(key=>{if(tar[key]!==undefined)items.push({label:key,amount:tar[key]})});
       (form.selectedExtras||[]).forEach(key=>{if(tar[key]!==undefined)items.push({label:key,amount:tar[key]})});
       // Auto-remises
@@ -1048,22 +1068,23 @@ function InscriptionsPage({D,set}){
       set.setClasses(p=>p.map(c=>c.id===enr.classId?{...c,enrolled:c.enrolled+1}:c));
       // Auto-invoice if not already invoiced
       const cl=classes.find(c=>c.id===enr.classId);if(!cl)return;
-      const t=tarifs[cl.matiere]||150;
+      const tarifKey=getClassTarifKey(cl.label)||cl.matiere;
+      const t=tarifs[tarifKey]!==undefined?tarifs[tarifKey]:150;
+      const autoLivre=getAutoLivre(cl.label);
       const existingInv=invoices.find(i=>i.studentId===enr.studentId&&i.enrollmentIds.includes(eid));
       if(!existingInv){
         const allEnrs=enrollments.filter(e=>e.studentId===enr.studentId&&e.status==="Inscription acceptée");
         const matieres=new Set(allEnrs.map(e=>{const c2=classes.find(c=>c.id===e.classId);return c2?.matiere}).filter(Boolean));
         matieres.add(cl.matiere);
         const fdDossier=tarifs["Frais de dossier"]!==undefined?tarifs["Frais de dossier"]:15;
-        const items=[{label:cl.matiere,amount:t},{label:"Frais de dossier",amount:fdDossier}];
+        const items=[{label:tarifKey,amount:t},{label:"Frais de dossier",amount:fdDossier}];
+        if(autoLivre&&tarifs[autoLivre]!==undefined)items.push({label:autoLivre,amount:tarifs[autoLivre]});
         // Auto-remises from state
         const autoR=(D.remises||[]).filter(r=>r.auto&&r.condition);
         autoR.forEach(r=>{
           if(r.condition==="arabe+si"&&matieres.has("Arabe")&&matieres.has("Sciences Islamiques"))items.push({label:r.label,amount:r.amount});
           else if(r.condition==="arabe+coran"&&matieres.has("Arabe")&&matieres.has("Coran"))items.push({label:r.label,amount:r.amount});
         });
-        // Manual remises / extras from form not applicable in bulk/status-change context
-        // (form.selectedRemises) and (form.selectedExtras) skipped — no form context here
         const total=items.reduce((s,i)=>s+i.amount,0);
         set.setInvoices(p=>[...p,{id:uid(),studentId:enr.studentId,enrollmentIds:[eid],items,total,paid:0,status:"Impayée",payments:[],schedule:[]}]);
       }
@@ -1199,18 +1220,20 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,u
   // Auto-livres calculés à partir des classes sélectionnées
   const autoLivresEdit=[...new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
 
-  // Extras = tarifs NOT matières, NOT frais dossier, NOT auto-livres
-  const classeMatieres=new Set(classes.map(c=>c.matiere));
+  // Extras = tarifs NOT inscriptions, NOT frais dossier, NOT auto-livres
+  const inscriptionKeysEdit=new Set(["Arabe","Coran Enfant","Coran Ados Adultes","Coran Mamie","Sciences Islamiques","Frais de dossier"]);
   const autoLivresEditSet=new Set(autoLivresEdit);
-  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k)&&k!=="Frais de dossier"&&!autoLivresEditSet.has(k));
+  const extras=Object.entries(tarifs).filter(([k])=>!inscriptionKeysEdit.has(k)&&!autoLivresEditSet.has(k));
   const manualRemises=remises.filter(r=>!r.auto);
 
-  // Calcul total estimé
+  // Tarif keys from selected classes (deduplicated)
   const selectedMatieres=new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
+  const selectedTarifKeysEdit=[...new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getClassTarifKey(c.label):null}).filter(Boolean))];
+
   const autoRemises=remises.filter(r=>r.auto&&r.condition);
   let estTotal=0;
   if(tarifs["Frais de dossier"]!==undefined)estTotal+=tarifs["Frais de dossier"];
-  selectedMatieres.forEach(m=>{if(tarifs[m]!==undefined)estTotal+=tarifs[m]});
+  selectedTarifKeysEdit.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
   autoLivresEdit.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
   if(!isBenevole)f.selectedExtras.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
   autoRemises.forEach(r=>{
@@ -1298,7 +1321,7 @@ function EditStudentModal({student,classes,enrollments,invoices,tarifs,remises,u
     {f.selectedClasses.length>0&&<div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 space-y-1">
       <p className="text-xs text-gray-600 font-semibold uppercase mb-1">Récapitulatif facture</p>
       {tarifs["Frais de dossier"]!==undefined&&<div className="flex justify-between text-xs"><span className="text-gray-600">Frais de dossier</span><span>{tarifs["Frais de dossier"]}€</span></div>}
-      {[...selectedMatieres].map(m=>tarifs[m]!==undefined&&<div key={m} className="flex justify-between text-xs"><span className="text-gray-600">{m}</span><span>{tarifs[m]}€</span></div>)}
+      {selectedTarifKeysEdit.map(key=>tarifs[key]!==undefined&&<div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoLivresEdit.map(key=>tarifs[key]!==undefined&&<div key={key} className="flex justify-between text-xs text-blue-700"><span>📚 {key} <span className="text-[9px] text-blue-400">(inclus auto)</span></span><span>{tarifs[key]}€</span></div>)}
       {!isBenevole&&f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoRemises.filter(r=>{if(r.condition==="arabe+si")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques");if(r.condition==="arabe+coran")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran");return false;}).map(r=><div key={r.id} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
@@ -1549,6 +1572,15 @@ function ImportStudents({D,set,onDone}){
   </div>;
 }
 
+function getClassTarifKey(classLabel){
+  if(!classLabel)return null;
+  if(/Coran Enfant/i.test(classLabel))return "Coran Enfant";
+  if(/Coran Mamie/i.test(classLabel))return "Coran Mamie";
+  if(/Coran/i.test(classLabel))return "Coran Ados Adultes";
+  if(/Arabe/i.test(classLabel))return "Arabe";
+  if(/Sciences Islamiques|Fiqh/i.test(classLabel))return "Sciences Islamiques";
+  return null;
+}
 function getAutoLivre(classLabel){
   if(!classLabel)return null;
   if(/Arabe Adulte/i.test(classLabel))return "Livre Arabe Adulte";
@@ -1557,7 +1589,7 @@ function getAutoLivre(classLabel){
   if(/2e.* Arabe/i.test(classLabel))return "Livre Arabe 2è";
   if(/1er Arabe|1ère Arabe/i.test(classLabel))return "Livre Arabe 1er";
   if(/Coran Enfant/i.test(classLabel))return "Livre Coran Enfant";
-  if(/Coran/i.test(classLabel))return "Livre Coran Juz Amma";
+  // Ados, Adultes, Mamie → pas de livre selon grille officielle
   return null;
 }
 
@@ -1582,28 +1614,28 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
   // Auto-livres calculés à partir des classes sélectionnées
   const autoLivres=[...new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getAutoLivre(c.label):null}).filter(Boolean))];
 
-  // Extras = tarifs entries NOT matières, NOT frais dossier (auto), NOT auto-livres
-  const classeMatieres=new Set(classes.map(c=>c.matiere));
+  // Extras = tarifs entries NOT inscriptions, NOT frais dossier, NOT auto-livres
+  const inscriptionKeys=new Set(["Arabe","Coran Enfant","Coran Ados Adultes","Coran Mamie","Sciences Islamiques","Frais de dossier"]);
   const autoLivresSet=new Set(autoLivres);
-  const extras=Object.entries(tarifs).filter(([k])=>!classeMatieres.has(k)&&k!=="Frais de dossier"&&!autoLivresSet.has(k));
+  const extras=Object.entries(tarifs).filter(([k])=>!inscriptionKeys.has(k)&&!autoLivresSet.has(k));
 
-  // Estimated total calculation
-  const selectedMatieres=new Set(f.selectedClasses.map(cid=>{const c=classes.find(c=>c.id===cid);return c?.matiere}).filter(Boolean));
+  // Tarif keys from selected classes (deduplicated)
+  const selectedMatieres=new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?.matiere}).filter(Boolean));
+  const selectedTarifKeys=[...new Set(f.selectedClasses.map(cid=>{const c=classes.find(x=>x.id===cid);return c?getClassTarifKey(c.label):null}).filter(Boolean))];
+
   let estTotal=0;
-  // Frais de dossier (always, if in tarifs)
   if(tarifs["Frais de dossier"]!==undefined)estTotal+=tarifs["Frais de dossier"];
-  selectedMatieres.forEach(m=>{if(tarifs[m]!==undefined)estTotal+=tarifs[m]});
+  selectedTarifKeys.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
   // Auto-livres
   autoLivres.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
   // Add selected extras (only for non-benevole)
   if(!isBenevole)f.selectedExtras.forEach(key=>{if(tarifs[key]!==undefined)estTotal+=tarifs[key]});
-  // Auto-remises from state
+  // Auto-remises
   const autoRemises=(remises||[]).filter(r=>r.auto&&r.condition);
   autoRemises.forEach(r=>{
     if(r.condition==="arabe+si"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques"))estTotal+=r.amount;
     else if(r.condition==="arabe+coran"&&selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran"))estTotal+=r.amount;
   });
-  // Manual remises selected by admin only
   if(isAdmin)f.selectedRemises.forEach(rid=>{const r=(remises||[]).find(x=>x.id===rid);if(r)estTotal+=r.amount;});
 
   const manualRemises=(remises||[]).filter(r=>!r.auto);
@@ -1650,7 +1682,7 @@ function NewInscriptionForm({classes,subjects,tarifs,remises,redlist,user,onSubm
     {f.selectedClasses.length>0&&<div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 space-y-1">
       <p className="text-xs text-gray-600 font-semibold uppercase mb-1">Récapitulatif</p>
       {tarifs["Frais de dossier"]!==undefined&&<div className="flex justify-between text-xs"><span className="text-gray-600">Frais de dossier</span><span>{tarifs["Frais de dossier"]}€</span></div>}
-      {[...selectedMatieres].map(m=>tarifs[m]!==undefined&&<div key={m} className="flex justify-between text-xs"><span className="text-gray-600">{m}</span><span>{tarifs[m]}€</span></div>)}
+      {selectedTarifKeys.map(key=>tarifs[key]!==undefined&&<div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoLivres.map(key=>tarifs[key]!==undefined&&<div key={key} className="flex justify-between text-xs text-blue-700"><span>📚 {key} <span className="text-[9px] text-blue-400">(inclus auto)</span></span><span>{tarifs[key]}€</span></div>)}
       {!isBenevole&&f.selectedExtras.map(key=><div key={key} className="flex justify-between text-xs"><span className="text-gray-600">{key}</span><span>{tarifs[key]}€</span></div>)}
       {autoRemises.filter(r=>{if(r.condition==="arabe+si")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Sciences Islamiques");if(r.condition==="arabe+coran")return selectedMatieres.has("Arabe")&&selectedMatieres.has("Coran");return false;}).map(r=><div key={r.id} className="flex justify-between text-xs text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
@@ -3280,43 +3312,12 @@ function SettingsPage({D,set}){
       <FirebaseUsersManager D={D} set={set}/>
     </div>}
 
-    {/* TARIFS */}
-    <div className="mt-6 pt-4 border-t"><h3 className="text-lg font-bold mb-3">Grille tarifaire</h3>
-      <div className="bg-white rounded-xl border shadow-sm"><table className="w-full text-sm"><thead><tr className="bg-gray-50 border-b">
-        <th className="text-left px-4 py-3 font-semibold text-gray-600">Matiere / Frais</th>
-        <th className="text-right px-4 py-3 font-semibold text-gray-600">Tarif (EUR)</th>
-        <th className="text-right px-4 py-3"></th>
-      </tr></thead><tbody className="divide-y divide-gray-100">
-        {Object.entries(D.tarifs).map(([key,val])=><tr key={key}>
-          <td className="px-4 py-2 font-medium">{key}</td>
-          <td className="px-4 py-2 text-right"><input type="number" value={val} onChange={e=>set.setTarifs(p=>({...p,[key]:parseFloat(e.target.value)||0}))}
-            className="w-24 px-2 py-1 border rounded text-right text-sm"/></td>
-          <td className="px-4 py-2 text-right"><button onClick={()=>set.setTarifs(p=>{const n={...p};delete n[key];return n})} className="text-red-400 hover:text-red-600 text-xs">Supprimer</button></td>
-        </tr>)}</tbody></table></div>
-      <div className="flex gap-2 mt-3">
-        <Btn size="sm" variant="secondary" onClick={()=>{const label=prompt("Nom du tarif:");if(label){const prix=prompt("Prix en EUR:");if(prix)set.setTarifs(p=>({...p,[label]:parseFloat(prix)||0}))}}}>Ajouter un tarif</Btn>
-        <Btn size="sm" variant="ghost" onClick={()=>set.setTarifs(DEFAULT_TARIFS)}>Reinitialiser</Btn></div>
-    </div>
-    <div className="mt-4 pt-4 border-t"><h3 className="text-lg font-bold mb-3">Remises</h3>
-      <div className="bg-white rounded-xl border shadow-sm"><table className="w-full text-sm"><thead><tr className="bg-gray-50 border-b">
-        <th className="text-left px-4 py-3 font-semibold text-gray-600">Libellé</th>
-        <th className="text-right px-4 py-3 font-semibold text-gray-600">Montant (€)</th>
-        <th className="text-center px-4 py-3 font-semibold text-gray-600">Mode</th>
-        <th className="text-right px-4 py-3"></th>
-      </tr></thead><tbody className="divide-y divide-gray-100">
-        {(D.remises||[]).map(r=><tr key={r.id}>
-          <td className="px-4 py-2"><input value={r.label} onChange={e=>set.setRemises(p=>p.map(x=>x.id===r.id?{...x,label:e.target.value}:x))} className="w-full px-2 py-1 border rounded text-sm"/></td>
-          <td className="px-4 py-2 text-right"><input type="number" value={r.amount} onChange={e=>set.setRemises(p=>p.map(x=>x.id===r.id?{...x,amount:parseFloat(e.target.value)||0}:x))} className="w-24 px-2 py-1 border rounded text-right text-sm"/></td>
-          <td className="px-4 py-2 text-center">
-            <button onClick={()=>set.setRemises(p=>p.map(x=>x.id===r.id?{...x,auto:!x.auto}:x))} className={`px-2 py-0.5 rounded text-xs font-medium border ${r.auto?"bg-blue-100 border-blue-300 text-blue-700":"bg-purple-100 border-purple-300 text-purple-700"}`}>
-              {r.auto?"🤖 Auto":"👆 Manuel"}</button></td>
-          <td className="px-4 py-2 text-right"><button onClick={()=>set.setRemises(p=>p.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-600 text-xs">Supprimer</button></td>
-        </tr>)}
-      </tbody></table></div>
-      <div className="flex gap-2 mt-3">
-        <Btn size="sm" variant="secondary" onClick={()=>set.setRemises(p=>[...p,{id:uid(),label:"Nouvelle remise",amount:-10,auto:false,condition:""}])}>＋ Ajouter une remise</Btn>
-        <Btn size="sm" variant="ghost" onClick={()=>set.setRemises(DEFAULT_REMISES)}>Réinitialiser</Btn></div>
-      <p className="text-xs text-gray-400 mt-2">🤖 Auto = appliquée automatiquement selon la condition codée. 👆 Manuel = sélectionnable à la main dans le panier.</p>
+    {/* TARIFS — renvoi vers la page dédiée */}
+    <div className="mt-6 pt-4 border-t p-4 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between">
+      <div>
+        <p className="font-semibold text-emerald-900 text-sm">💶 Grille tarifaire & Remises</p>
+        <p className="text-xs text-emerald-700 mt-0.5">Gérez les tarifs des cours, frais de dossier, livres et remises depuis la page dédiée.</p>
+      </div>
     </div>
 
     {/* TRIMESTRES */}
@@ -3355,6 +3356,188 @@ function SettingsPage({D,set}){
         }}>🗑 Remettre à zéro les données de test</Btn>
       </div>
     </div>}
+  </div>;
+}
+
+/*═══════════════════════════════════════════════════════════════
+  TARIFS & REMISES PAGE — Admin uniquement
+═══════════════════════════════════════════════════════════════*/
+const TARIF_GROUPS=[
+  {key:"cours",label:"📚 Inscriptions aux cours",keys:["Arabe","Coran Enfant","Coran Ados Adultes","Coran Mamie","Sciences Islamiques"],
+   descriptions:{"Arabe":"Arabe (tous niveaux enfants/adultes)","Coran Enfant":"Coran — enfants","Coran Ados Adultes":"Coran — ados & adultes","Coran Mamie":"Coran — mamies","Sciences Islamiques":"Sciences Islamiques / Fiqh"}},
+  {key:"frais",label:"🗂 Frais fixes",keys:["Frais de dossier"],descriptions:{"Frais de dossier":"Frais de dossier (par inscription)"}},
+  {key:"livres_arabe",label:"📖 Livres Arabe (selon niveau)",keys:["Livre Arabe 1er","Livre Arabe 2è","Livre Arabe 2èS","Livre Arabe 3è","Livre Arabe Adulte"],
+   descriptions:{"Livre Arabe 1er":"1ère année","Livre Arabe 2è":"2e année","Livre Arabe 2èS":"2e année S","Livre Arabe 3è":"3e année","Livre Arabe Adulte":"Adulte (homme & femme)"}},
+  {key:"livres_coran",label:"📖 Livres Coran",keys:["Livre Coran Enfant"],descriptions:{"Livre Coran Enfant":"Coran enfants"}},
+];
+
+function TarifsPage({D,set}){
+  const {tarifs,remises}=D;
+  const [saved,setSaved]=useState(false);
+  const [newTarifLabel,setNewTarifLabel]=useState("");const [newTarifVal,setNewTarifVal]=useState("");
+  const [showAdd,setShowAdd]=useState(false);
+
+  function updateTarif(key,val){
+    set.setTarifs(p=>({...p,[key]:parseFloat(val)||0}));
+    setSaved(false);
+  }
+  function deleteTarif(key){if(confirm("Supprimer le tarif \""+key+"\" ?"))set.setTarifs(p=>{const n={...p};delete n[key];return n});}
+  function addTarif(){
+    if(!newTarifLabel.trim())return;
+    set.setTarifs(p=>({...p,[newTarifLabel.trim()]:parseFloat(newTarifVal)||0}));
+    setNewTarifLabel("");setNewTarifVal("");setShowAdd(false);
+  }
+
+  // Group tarifs for display
+  const knownKeys=new Set(TARIF_GROUPS.flatMap(g=>g.keys));
+  const extraKeys=Object.keys(tarifs).filter(k=>!knownKeys.has(k));
+
+  // Simulation
+  const [simClasses,setSimClasses]=useState([]);
+  const simAutoLivres=[...new Set(simClasses.map(lbl=>getAutoLivre(lbl)).filter(Boolean))];
+  const simTarifKeys=[...new Set(simClasses.map(lbl=>getClassTarifKey(lbl)).filter(Boolean))];
+  const simMatieres=new Set(simClasses.map(lbl=>{if(/Arabe/i.test(lbl))return"Arabe";if(/Coran/i.test(lbl))return"Coran";if(/Sciences/i.test(lbl))return"Sciences Islamiques";return null}).filter(Boolean));
+  let simTotal=tarifs["Frais de dossier"]||0;
+  simTarifKeys.forEach(k=>{if(tarifs[k])simTotal+=tarifs[k]});
+  simAutoLivres.forEach(k=>{if(tarifs[k])simTotal+=tarifs[k]});
+  const simAutoRemises=(remises||[]).filter(r=>r.auto&&r.condition).filter(r=>{
+    if(r.condition==="arabe+si")return simMatieres.has("Arabe")&&simMatieres.has("Sciences Islamiques");
+    if(r.condition==="arabe+coran")return simMatieres.has("Arabe")&&simMatieres.has("Coran");
+    return false;
+  });
+  simAutoRemises.forEach(r=>{simTotal+=r.amount});
+
+  const simClassOptions=[
+    "1er Arabe Enfant A","2e Arabe Enfant A","2eS Arabe Enfant A","3e Arabe Femme A","1er Arabe Adulte",
+    "1er Coran Enfant A","1er Coran Ados A","1er Coran Mamie A","1er Coran Femme A","1er Coran Homme A",
+    "1er Sciences Islamiques Ados A","1er Sciences Islamiques Adulte A",
+  ];
+
+  return <div className="space-y-8">
+    <div className="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">💶 Tarifs & Remises</h2>
+        <p className="text-sm text-gray-500">Grille tarifaire officielle 2025-2026 — visible et modifiable uniquement par l'administrateur</p>
+      </div>
+      <div className="flex gap-2">
+        <Btn size="sm" variant="ghost" onClick={()=>{if(confirm("Réinitialiser tous les tarifs aux valeurs officielles 2025-2026 ?"))set.setTarifs(DEFAULT_TARIFS)}}>🔄 Réinitialiser défauts</Btn>
+      </div>
+    </div>
+
+    {/* GRILLE PAR CATÉGORIE */}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {TARIF_GROUPS.map(group=><div key={group.key} className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 border-b"><p className="text-sm font-bold text-gray-800">{group.label}</p></div>
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-gray-100">
+            {group.keys.filter(k=>tarifs[k]!==undefined).map(k=><tr key={k} className="hover:bg-gray-50/50">
+              <td className="px-4 py-2.5">
+                <p className="font-medium text-gray-900">{k}</p>
+                {group.descriptions[k]&&<p className="text-[11px] text-gray-400">{group.descriptions[k]}</p>}
+              </td>
+              <td className="px-4 py-2.5 text-right w-32">
+                <div className="flex items-center justify-end gap-1">
+                  <input type="number" min="0" step="0.5" value={tarifs[k]} onChange={e=>updateTarif(k,e.target.value)}
+                    className="w-20 px-2 py-1 border rounded text-right text-sm font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"/>
+                  <span className="text-xs text-gray-400">€</span>
+                </div>
+              </td>
+            </tr>)}
+            {group.keys.filter(k=>tarifs[k]===undefined).length>0&&
+              group.keys.filter(k=>tarifs[k]===undefined).map(k=><tr key={k} className="opacity-40">
+                <td className="px-4 py-2 text-xs text-gray-400 italic">{k} — non configuré</td>
+                <td className="px-4 py-2 text-right"><button onClick={()=>set.setTarifs(p=>({...p,[k]:0}))} className="text-xs text-emerald-600 hover:underline">Activer</button></td>
+              </tr>)}
+          </tbody>
+        </table>
+      </div>)}
+
+      {/* EXTRAS PERSONNALISÉS */}
+      {extraKeys.length>0&&<div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 border-b"><p className="text-sm font-bold text-gray-800">➕ Tarifs personnalisés</p></div>
+        <table className="w-full text-sm"><tbody className="divide-y divide-gray-100">
+          {extraKeys.map(k=><tr key={k}>
+            <td className="px-4 py-2.5 font-medium">{k}</td>
+            <td className="px-4 py-2.5 text-right">
+              <div className="flex items-center justify-end gap-1">
+                <input type="number" min="0" step="0.5" value={tarifs[k]} onChange={e=>updateTarif(k,e.target.value)}
+                  className="w-20 px-2 py-1 border rounded text-right text-sm focus:ring-2 focus:ring-emerald-500 outline-none"/>
+                <span className="text-xs text-gray-400">€</span>
+                <button onClick={()=>deleteTarif(k)} className="ml-1 text-red-400 hover:text-red-600 text-xs p-1">🗑</button>
+              </div>
+            </td>
+          </tr>)}
+        </tbody></table>
+      </div>}
+    </div>
+
+    {/* AJOUTER UN TARIF CUSTOM */}
+    <div className="bg-white rounded-xl border shadow-sm p-4">
+      {!showAdd?<Btn size="sm" variant="secondary" onClick={()=>setShowAdd(true)}>＋ Ajouter un tarif personnalisé</Btn>:
+      <div className="flex items-end gap-3 flex-wrap">
+        <Inp label="Nom du tarif" value={newTarifLabel} onChange={e=>setNewTarifLabel(e.target.value)} placeholder="ex: Matériel pédagogique"/>
+        <div><label className="block text-xs font-medium text-gray-600 mb-1">Prix (€)</label>
+          <input type="number" min="0" step="0.5" value={newTarifVal} onChange={e=>setNewTarifVal(e.target.value)}
+            className="w-28 px-3 py-2 border rounded-lg text-sm text-right outline-none"/></div>
+        <div className="flex gap-2 pb-0.5"><Btn onClick={addTarif} disabled={!newTarifLabel.trim()}>Ajouter</Btn>
+          <Btn variant="secondary" onClick={()=>{setShowAdd(false);setNewTarifLabel("");setNewTarifVal("")}}>Annuler</Btn></div>
+      </div>}
+    </div>
+
+    {/* REMISES */}
+    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className="px-4 py-3 bg-purple-50 border-b flex items-center justify-between">
+        <p className="text-sm font-bold text-purple-900">🏷️ Remises</p>
+        <Btn size="sm" variant="secondary" onClick={()=>set.setRemises(DEFAULT_REMISES)}>Réinitialiser</Btn>
+      </div>
+      <table className="w-full text-sm"><thead><tr className="bg-gray-50 border-b">
+        <th className="text-left px-4 py-3 font-semibold text-gray-600">Libellé</th>
+        <th className="text-right px-4 py-3 font-semibold text-gray-600">Montant (€)</th>
+        <th className="text-center px-4 py-3 font-semibold text-gray-600">Mode</th>
+        <th className="text-right px-4 py-3"></th>
+      </tr></thead><tbody className="divide-y divide-gray-100">
+        {(remises||[]).map(r=><tr key={r.id}>
+          <td className="px-4 py-2.5"><input value={r.label} onChange={e=>set.setRemises(p=>p.map(x=>x.id===r.id?{...x,label:e.target.value}:x))}
+            className="w-full px-2 py-1 border rounded text-sm focus:ring-1 focus:ring-purple-400 outline-none"/></td>
+          <td className="px-4 py-2.5 text-right">
+            <div className="flex items-center justify-end gap-1">
+              <input type="number" step="1" value={r.amount} onChange={e=>set.setRemises(p=>p.map(x=>x.id===r.id?{...x,amount:parseFloat(e.target.value)||0}:x))}
+                className={`w-20 px-2 py-1 border rounded text-right text-sm font-semibold focus:ring-1 outline-none ${r.amount<0?"text-red-600 border-red-200":"text-emerald-700 border-green-200"}`}/>
+              <span className="text-xs text-gray-400">€</span>
+            </div>
+          </td>
+          <td className="px-4 py-2.5 text-center">
+            <button onClick={()=>set.setRemises(p=>p.map(x=>x.id===r.id?{...x,auto:!x.auto}:x))}
+              className={`px-2 py-0.5 rounded text-xs font-medium border ${r.auto?"bg-blue-100 border-blue-300 text-blue-700":"bg-purple-100 border-purple-300 text-purple-700"}`}>
+              {r.auto?"🤖 Auto":"👆 Manuel (admin)"}</button>
+          </td>
+          <td className="px-4 py-2.5 text-right">
+            <button onClick={()=>set.setRemises(p=>p.filter(x=>x.id!==r.id))} className="text-red-400 hover:text-red-600 text-xs p-1">🗑</button>
+          </td>
+        </tr>)}
+      </tbody></table>
+      <div className="px-4 py-3 border-t flex items-center gap-3 flex-wrap">
+        <Btn size="sm" onClick={()=>set.setRemises(p=>[...p,{id:uid(),label:"Nouvelle remise",amount:-10,auto:false,condition:""}])}>＋ Ajouter une remise</Btn>
+        <p className="text-xs text-gray-400">🤖 Auto = appliquée selon condition (arabe+coran, arabe+SI…) · 👆 Manuel = selectionnable uniquement par l'admin dans le panier</p>
+      </div>
+    </div>
+
+    {/* SIMULATEUR */}
+    <div className="bg-amber-50 rounded-xl border border-amber-200 p-5">
+      <h3 className="text-sm font-bold text-amber-900 mb-3">🧮 Simulateur de facturation</h3>
+      <p className="text-xs text-gray-600 mb-3">Sélectionnez des cours pour visualiser le calcul automatique.</p>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {simClassOptions.map(lbl=>{const sel=simClasses.includes(lbl);return<button key={lbl} type="button" onClick={()=>setSimClasses(p=>sel?p.filter(x=>x!==lbl):[...p,lbl])}
+          className={`px-3 py-1.5 rounded-full text-xs border transition ${sel?"bg-amber-500 border-amber-600 text-white font-semibold":"bg-white border-amber-300 text-amber-800 hover:bg-amber-100"}`}>{lbl}</button>;})}
+      </div>
+      {simClasses.length>0&&<div className="bg-white rounded-lg border border-amber-200 p-4 space-y-1.5 text-sm">
+        <div className="flex justify-between text-gray-600"><span>Frais de dossier</span><span>{tarifs["Frais de dossier"]||0}€</span></div>
+        {simTarifKeys.map(k=><div key={k} className="flex justify-between text-gray-800"><span>{k}</span><span className="font-medium">{tarifs[k]||0}€</span></div>)}
+        {simAutoLivres.map(k=><div key={k} className="flex justify-between text-blue-700"><span>📚 {k}</span><span>{tarifs[k]||0}€</span></div>)}
+        {simAutoRemises.map(r=><div key={r.id} className="flex justify-between text-purple-700"><span>🏷️ {r.label}</span><span>{r.amount}€</span></div>)}
+        <div className="flex justify-between font-bold text-emerald-800 pt-2 border-t border-amber-200 text-base"><span>Total</span><span>{simTotal}€</span></div>
+      </div>}
+    </div>
   </div>;
 }
 
@@ -3606,6 +3789,7 @@ function App(){
       {page==="teachers"&&<TeachersPage D={D} set={set}/>}
       {page==="redlist"&&<RedlistPage D={D} set={set}/>}
       {page==="reports"&&<ReportsPage D={D}/>}
+      {page==="tarifs"&&<TarifsPage D={D} set={set}/>}
       {page==="settings"&&<SettingsPage D={D} set={set}/>}
     </div></div>;
 }
