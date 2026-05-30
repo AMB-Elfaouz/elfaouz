@@ -83,6 +83,7 @@ const SEED_CLASSES=[
   {id:"c8",code:"ARENB2",label:"2e Arabe Enfant B",type:"Mixte",quota:22,enrolled:0,matiere:"Arabe",teacherIds:[]},
   {id:"c9",code:"ARENC2",label:"2e Arabe Enfant C",type:"Mixte",quota:24,enrolled:0,matiere:"Arabe",teacherIds:[]},
   {id:"c10",code:"ARENA2S",label:"2eS Arabe Enfant A",type:"Mixte",quota:24,enrolled:0,matiere:"Arabe",teacherIds:[]},
+  {id:"c34",code:"ARENA3",label:"3e Arabe Enfant A",type:"Mixte",quota:20,enrolled:0,matiere:"Arabe",teacherIds:[]},
   {id:"c11",code:"ARFEA3",label:"3e Arabe Femme A",type:"Fille",quota:17,enrolled:0,matiere:"Arabe",teacherIds:[]},
   {id:"c12",code:"COENA1",label:"1er Coran Enfant A",type:"Mixte",quota:15,enrolled:0,matiere:"Coran",teacherIds:[]},
   {id:"c13",code:"COENB1",label:"1er Coran Enfant B",type:"Mixte",quota:15,enrolled:0,matiere:"Coran",teacherIds:[]},
@@ -3974,7 +3975,7 @@ function TarifsPage({D,set}){
   simAutoRemises.forEach(r=>{simTotal+=r.amount});
 
   const simClassOptions=[
-    "1er Arabe Enfant A","2e Arabe Enfant A","2eS Arabe Enfant A","3e Arabe Femme A","1er Arabe Adulte",
+    "1er Arabe Enfant A","2e Arabe Enfant A","2eS Arabe Enfant A","3e Arabe Enfant A","3e Arabe Femme A","1er Arabe Adulte",
     "1er Coran Enfant A","1er Coran Ados A","1er Coran Mamie A","1er Coran Femme A","1er Coran Homme A",
     "1er Sciences Islamiques Ados A","1er Sciences Islamiques Adulte A",
   ];
@@ -4131,7 +4132,7 @@ function App(){
     d.classes&&setClasses(d.classes);d.students&&setStudents(d.students);d.enrollments&&setEnrollments(d.enrollments);
     d.invoices&&setInvoices(d.invoices);d.redlist&&setRedlist(d.redlist);d.accounts&&setAccounts(d.accounts);
     d.teachers&&setTeachers(d.teachers);d.subjects&&setSubjects(d.subjects);d.grades&&setGrades(d.grades);
-    d.absences&&setAbsences(d.absences);d.teacherAbsences&&setTeacherAbsences(d.teacherAbsences);d.sanctions&&setSanctions(d.sanctions);d.emailHistory&&setEmailHistory(d.emailHistory);d.edt&&setEdt(d.edt);d.vacances&&setVacances(d.vacances);d.tarifs&&setTarifs(d.tarifs);d.remises&&setRemises(d.remises);d.trimDates&&setTrimDates(d.trimDates);
+    d.absences&&setAbsences(d.absences);d.teacherAbsences&&setTeacherAbsences(d.teacherAbsences);d.sanctions&&setSanctions(d.sanctions);d.emailHistory&&setEmailHistory(d.emailHistory);d.edt&&setEdt(d.edt);d.vacances&&setVacances(d.vacances);d.tarifs&&setTarifs({...DEFAULT_TARIFS,...d.tarifs}); // merge: nouvelles clés DEFAULT préservéesd.remises&&setRemises(d.remises);d.trimDates&&setTrimDates(d.trimDates);
     d.bulletinComments&&setBulletinComments(d.bulletinComments);
   }
 
