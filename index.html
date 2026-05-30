@@ -1924,8 +1924,8 @@ function PaymentsPage({D,set}){
   function printDoc(inv,type){setPrintM({inv,type})}
   // Collect all schedule items across invoices for the Échéancier view
   const allSchedules=[];invoices.forEach(inv=>{const st=students.find(s=>s.id===inv.studentId);
-    const parentName=st&&st.rep1&&st.rep1.nom?`${st.rep1.prenom||""} ${st.rep1.nom}`.trim():"—";
-    (inv.schedule||[]).forEach(sch=>{allSchedules.push({...sch,invoiceId:inv.id,studentName:st?`${st.prenom} ${st.nom}`:"—",parentName})})});
+    const pn=st&&st.rep1&&st.rep1.nom?((st.rep1.prenom||"")+" "+(st.rep1.nom||"")).trim():"—";
+    (inv.schedule||[]).forEach(sch=>{allSchedules.push({...sch,invoiceId:inv.id,studentName:st?`${st.prenom} ${st.nom}`:"—",parentName:pn})})});
   allSchedules.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
 
   function pay(invId,p){set.setInvoices(prev=>prev.map(i=>{if(i.id!==invId)return i;const np=i.paid+p.amount;
@@ -1934,32 +1934,43 @@ function PaymentsPage({D,set}){
     return{...i,paid:np,status:np>0?"Partiellement payée":"Impayée",payments:[...(i.payments||[]),{...r,amount:-r.amount,method:"REJET: "+r.method}]}}));setRejM(null)}
   function saveSchedule(invId,schedule){set.setInvoices(prev=>prev.map(i=>i.id===invId?{...i,schedule}:i));setSchedM(null)}
 
-  // Export CSV UTF-8 BOM — compatible Excel, LibreOffice, Numbers
+  // Export CSV UTF-8 — compatible Excel, LibreOffice, Numbers, Google Sheets
+  // Cause racine de l'ancien bug : SheetJS chargé dynamiquement dans un contexte Babel
+  // appelait .indexOf() sur des valeurs non-string. Remplacé par génération CSV native.
   function exportEcheancierExcel(){
     try{
-      const sep=";";
-      const esc=v=>{const s=String(v==null?"":v);return s.includes(sep)||s.includes('"')||s.includes("\n")?'"'+s.replace(/"/g,'""')+'"':s;};
-      const headers=["Date échéance","Montant (€)","N° chèque / Réf.","Nom élève","Nom parent","Mode","Statut"];
-      const lines=[headers.map(esc).join(sep)];
-      allSchedules.forEach(sch=>{
+      var SEP=";";
+      var esc=function(v){
+        var s=String(v==null?"":v);
+        if(s.indexOf(SEP)!==-1||s.indexOf('"')!==-1||s.indexOf("\n")!==-1)
+          return '"'+s.split('"').join('""')+'"';
+        return s;
+      };
+      var headers=["Date échéance","Montant (EUR)","N° chèque / Réf.","Nom élève","Nom parent / responsable","Mode règlement","Statut"];
+      var lines=[headers.map(esc).join(SEP)];
+      allSchedules.forEach(function(sch){
+        var amt=sch.amount!=null?String(Number(sch.amount)||0).replace(".",","):"0";
         lines.push([
           esc(sch.date||""),
-          esc(sch.amount!=null?String(sch.amount).replace(".",","):"0"),
-          esc(sch.ref||"—"),
-          esc(sch.studentName||"—"),
-          esc(sch.parentName||"—"),
-          esc(sch.method||"—"),
+          amt,
+          esc(sch.ref||""),
+          esc(sch.studentName||""),
+          esc(sch.parentName||""),
+          esc(sch.method||""),
           esc(sch.status||""),
-        ].join(sep));
+        ].join(SEP));
       });
-      const bom="\uFEFF";
-      const blob=new Blob([bom+lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      a.href=url;a.download="Echeancier_ElFaouz_"+today()+".csv";
-      document.body.appendChild(a);a.click();
-      setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a);},1000);
-    }catch(e){alert("Erreur export : "+e.message);}
+      // BOM UTF-8 intégré directement : Excel ouvre le CSV en UTF-8 sans dialogue
+      var csvContent="﻿"+lines.join("\r\n");
+      var blob=new Blob([csvContent],{type:"text/csv;charset=utf-8;"});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement("a");
+      a.href=url;
+      a.download="Echeancier_ElFaouz_"+today()+".csv";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){URL.revokeObjectURL(url);document.body.removeChild(a);},1000);
+    }catch(e){alert("Erreur export : "+(e&&e.message?e.message:String(e)));}
   }
 
   return <div className="space-y-5">
