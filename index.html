@@ -1933,8 +1933,21 @@ function PaymentsPage({D,set}){
 
   function pay(invId,p){set.setInvoices(prev=>prev.map(i=>{if(i.id!==invId)return i;const np=i.paid+p.amount;
     return{...i,paid:np,status:np>=i.total?"Payée":"Partiellement payée",payments:[...(i.payments||[]),p]}}));setPayM(null)}
-  function reject(invId,r){set.setInvoices(prev=>prev.map(i=>{if(i.id!==invId)return i;const np=Math.max(0,i.paid-r.amount);
-    return{...i,paid:np,status:np>0?"Partiellement payée":"Impayée",payments:[...(i.payments||[]),{...r,amount:-r.amount,method:"REJET: "+r.method}]}}));setRejM(null)}
+  function reject(invId,r){set.setInvoices(prev=>prev.map(i=>{
+    if(i.id!==invId)return i;
+    const np=Math.max(0,i.paid-r.amount);
+    // Marquer "Rejeté" l'échéance correspondante (matching par ref chèque + montant)
+    const newSchedule=(i.schedule||[]).map(sch=>{
+      const refMatch=r.chequeRef&&sch.ref&&sch.ref.trim()===r.chequeRef.trim();
+      const amtMatch=Math.abs((Number(sch.amount)||0)-(Number(r.amount)||0))<0.01;
+      const alreadyRemis=sch.status==="Remis à l'encaissement";
+      if(refMatch&&amtMatch&&alreadyRemis)return{...sch,status:"Rejeté"};
+      return sch;
+    });
+    return{...i,paid:np,status:np>0?"Partiellement payée":"Impayée",
+      schedule:newSchedule,
+      payments:[...(i.payments||[]),{...r,amount:-r.amount,method:"REJET: "+r.method}]};
+  }));setRejM(null)}
   function saveSchedule(invId,schedule){set.setInvoices(prev=>prev.map(i=>i.id===invId?{...i,schedule}:i));setSchedM(null)}
 
   // Export CSV UTF-8 — compatible Excel, LibreOffice, Numbers, Google Sheets
@@ -2011,11 +2024,11 @@ function PaymentsPage({D,set}){
           <td className="px-4 py-2 text-right font-bold">{sch.amount}€</td>
           <td className="px-4 py-2">{sch.method||"—"}</td>
           <td className="px-4 py-2 text-xs font-mono">{sch.ref||<span className="text-red-400 italic">manquant</span>}</td>
-          <td className="px-4 py-2"><Badge color={sch.status==="À venir"?"blue":sch.status==="Payée"?"green":"red"}>{sch.status}</Badge></td>
+          <td className="px-4 py-2"><Badge color={sch.status==="À venir"?"blue":sch.status==="Payée"?"green":sch.status==="Remis à l'encaissement"?"orange":sch.status==="Rejeté"?"red":"gray"}>{sch.status}</Badge></td>
         </tr>})}</tbody></table></div>}
     </div>}
 
-    {tab==="remisecheque"&&<RemiseChequePanel allSchedules={allSchedules} dateRemise={dateRemise} setDateRemise={setDateRemise} selRemise={selRemise} setSelRemise={setSelRemise} remisePrinted={remisePrinted} setRemisePrinted={setRemisePrinted}/>}
+    {tab==="remisecheque"&&<RemiseChequePanel allSchedules={allSchedules} dateRemise={dateRemise} setDateRemise={setDateRemise} selRemise={selRemise} setSelRemise={setSelRemise} remisePrinted={remisePrinted} setRemisePrinted={setRemisePrinted} setInvoices={set.setInvoices}/>}
 
     {tab==="factures"&&<div className="space-y-4">
     <div className="grid grid-cols-3 gap-4">
@@ -2060,7 +2073,7 @@ function PaymentsPage({D,set}){
 /*═══════════════════════════════════════════════════════════════
   REMISE CHÈQUES
 ═══════════════════════════════════════════════════════════════*/
-function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setSelRemise,remisePrinted,setRemisePrinted}){
+function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setSelRemise,remisePrinted,setRemisePrinted,setInvoices}){
   // Tous les chèques de l'échéancier (mode Chèque uniquement)
   const allCheques=allSchedules.filter(s=>s.method==="Chèque");
 
@@ -2085,6 +2098,30 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
   const selected=allCheques.filter((_,i)=>selRemise.has(i));
   const totalEUR=selected.reduce((s,x)=>s+(Number(x.amount)||0),0);
   const nbCheques=selected.length;
+
+  // Valider la remise : marquer les échéances sélectionnées "Remis à l'encaissement"
+  // Matching par invoiceId + ref (numéro chèque) + amount
+  function validerRemise(){
+    if(selected.length===0){alert("Aucun chèque sélectionné.");return;}
+    const confirmed=window.confirm(
+      "Valider la remise de "+nbCheques+" chèque(s) pour un total de "
+      +totalEUR.toLocaleString("fr-FR",{minimumFractionDigits:2})+" € ?\n\n"
+      +"Le statut passera à \"Remis à l'encaissement\" pour chaque chèque sélectionné."
+    );
+    if(!confirmed)return;
+    // Construire un Set de clés de rapprochement : "invoiceId|ref|amount"
+    const keys=new Set(selected.map(s=>s.invoiceId+"|"+s.ref+"|"+String(Number(s.amount)||0)));
+    setInvoices(prev=>prev.map(inv=>{
+      const newSchedule=(inv.schedule||[]).map(sch=>{
+        const k=inv.id+"|"+sch.ref+"|"+String(Number(sch.amount)||0);
+        if(keys.has(k)&&sch.status==="À venir")return{...sch,status:"Remis à l'encaissement"};
+        return sch;
+      });
+      return{...inv,schedule:newSchedule};
+    }));
+    setRemisePrinted(true);
+    alert("✅ "+nbCheques+" chèque(s) marqué(s) \"Remis à l'encaissement\".");
+  }
 
   // Export CSV de la remise
   function exportRemiseCSV(){
@@ -2174,7 +2211,11 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
       </div>
       <div className="flex gap-2 flex-wrap">
         {nbCheques>0&&<Btn onClick={exportRemiseCSV} variant="secondary">📊 Exporter CSV</Btn>}
-        {nbCheques>0&&<Btn onClick={printRemise} variant={remisePrinted?"secondary":"primary"}>🖨️ {remisePrinted?"Réimprimer":"Imprimer le bordereau"}</Btn>}
+        {nbCheques>0&&<Btn onClick={printRemise} variant="secondary">🖨️ Imprimer le bordereau</Btn>}
+        {nbCheques>0&&selected.some(s=>s.status==="À venir")&&
+          <Btn onClick={validerRemise} variant="primary">✅ Valider la remise</Btn>}
+        {nbCheques>0&&selected.every(s=>s.status!=="À venir")&&
+          <span className="inline-flex items-center px-3 py-2 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-semibold">✅ Remise validée</span>}
       </div>
     </div>
 
@@ -2236,7 +2277,7 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
                 <td className="px-4 py-2.5 text-gray-500 text-xs">{sch.parentName||"—"}</td>
                 <td className="px-4 py-2.5 text-right font-bold text-gray-900">{(Number(sch.amount)||0).toLocaleString("fr-FR",{minimumFractionDigits:2})} €</td>
                 <td className="px-4 py-2.5 font-mono text-xs">{sch.ref||<span className="text-red-400 italic">manquant</span>}</td>
-                <td className="px-4 py-2.5"><Badge color={sch.status==="À venir"?"blue":sch.status==="Payée"?"green":"red"}>{sch.status}</Badge></td>
+                <td className="px-4 py-2.5"><Badge color={sch.status==="À venir"?"blue":sch.status==="Payée"?"green":sch.status==="Remis à l'encaissement"?"orange":sch.status==="Rejeté"?"red":"gray"}>{sch.status}</Badge></td>
               </tr>;
             })}
           </tbody>
@@ -2461,18 +2502,31 @@ function ScheduleForm({inv,onSave,onCancel}){
   </div>;
 }
 function RejectFormAdv({inv,onSubmit,onCancel,D,set}){
-  const [amt,setAmt]=useState(0);const [method,setMethod]=useState("Chèque");const [motif,setMotif]=useState("");const [addRL,setAddRL]=useState(false);
+  const [amt,setAmt]=useState(0);const [method,setMethod]=useState("Chèque");const [motif,setMotif]=useState("");const [addRL,setAddRL]=useState(false);const [chequeRef,setChequeRef]=useState("");
   const st=D.students.find(s=>s.id===inv.studentId);
+  // Pré-remplir avec les échéances "Remis à l'encaissement" de cette facture
+  const remisSchedules=(inv.schedule||[]).filter(s=>s.status==="Remis à l'encaissement"&&s.method==="Chèque");
   return <div className="space-y-3">
-    <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-800 font-medium">⚠ Le montant sera déduit</div>
+    <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-800 font-medium">⚠ Le montant sera déduit du solde payé</div>
     <Inp label="Montant rejeté" type="number" value={amt} onChange={e=>setAmt(parseFloat(e.target.value)||0)}/>
     <Sel label="Mode initial" value={method} onChange={e=>setMethod(e.target.value)} options={[{value:"Chèque",label:"Chèque"},{value:"CB",label:"CB"},{value:"Virement",label:"Virement"}]}/>
+    {method==="Chèque"&&<div>
+      <Inp label="N° chèque rejeté" value={chequeRef} onChange={e=>setChequeRef(e.target.value)} placeholder="Numéro du chèque rejeté"/>
+      {remisSchedules.length>0&&<div className="mt-1.5 space-y-1">
+        <p className="text-xs text-gray-500">Chèques remis à l'encaissement pour cette facture :</p>
+        {remisSchedules.map((s,i)=><button key={i} type="button" onClick={()=>{setChequeRef(s.ref);setAmt(Number(s.amount)||0);}}
+          className="w-full text-left px-2 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50 flex justify-between">
+          <span className="font-mono font-medium">{s.ref}</span>
+          <span className="text-gray-500">{s.date} — {Number(s.amount)||0} €</span>
+        </button>)}
+      </div>}
+    </div>}
     <Inp label="Motif" value={motif} onChange={e=>setMotif(e.target.value)} placeholder="Ex: Chèque sans provision"/>
     {D.user.role==="admin"&&st&&<label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={addRL} onChange={e=>setAddRL(e.target.checked)} className="rounded"/>
       <span className="text-red-700 font-medium">Ajouter en liste rouge</span></label>}
     <div className="flex justify-end gap-2 pt-3"><Btn variant="secondary" onClick={onCancel}>Annuler</Btn>
-      <Btn variant="danger" onClick={()=>{onSubmit({date:today(),amount:amt,method,ref:"REJET: "+motif});
-        if(addRL&&st)set.setRedlist(p=>[...p,{id:uid(),nom:st.nom,prenom:st.prenom,dob:st.dob||"",reason:"Incident de paiement",detail:motif,addedBy:D.user.name,addedAt:today()}])}}>Confirmer</Btn></div></div>;
+      <Btn variant="danger" onClick={()=>{onSubmit({date:today(),amount:amt,method,chequeRef,ref:"REJET: "+motif});
+        if(addRL&&st)set.setRedlist(p=>[...p,{id:uid(),nom:st.nom,prenom:st.prenom,dob:st.dob||"",reason:"Incident de paiement",detail:motif,addedBy:D.user.name,addedAt:today()}])}}>Confirmer le rejet</Btn></div></div>;
 }
 
 /*═══════════════════════════════════════════════════════════════
