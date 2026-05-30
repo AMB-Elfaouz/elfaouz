@@ -2154,7 +2154,7 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
       return{...inv,schedule:newSchedule};
     }));
     setSelAnnul(new Set());
-    alert("↩️ "+selectedAnnul.length+" chèque(s) remis au statut \"À venir\".");
+    alert("↩️ Remise annulée — "+selectedAnnul.length+" chèque(s) repassé(s) à \"À venir\".");
   }
 
   // Export CSV de la remise
@@ -2338,8 +2338,8 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
             {" · "}<strong>{totalRemis.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</strong>
           </p>
         </div>
-        {selectedAnnul.size>0&&<Btn onClick={annulerRemise} variant="warning">
-          ↩️ Remettre {selectedAnnul.size} chèque(s) à "À venir"
+        {selectedAnnul.length>0&&<Btn onClick={annulerRemise} variant="warning">
+          ↩️ Annuler la remise ({selectedAnnul.length} chèque{selectedAnnul.length>1?"s":""})
         </Btn>}
       </div>
       <div className="bg-white overflow-x-auto">
@@ -2375,13 +2375,13 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
               </tr>;
             })}
           </tbody>
-          {selectedAnnul.size>0&&<tfoot>
+          {selectedAnnul.length>0&&<tfoot>
             <tr className="bg-amber-100 font-bold">
               <td colSpan={4} className="px-4 py-2.5 text-xs text-amber-900">
-                {selectedAnnul.size} chèque(s) sélectionné(s)
+                {selectedAnnul.length} chèque(s) sélectionné(s)
               </td>
               <td className="px-4 py-2.5 text-right text-amber-900">
-                {selectedAnnul.size>0&&chequesRemis.filter((_,i)=>selAnnul.has(i))
+                {selectedAnnul.length>0&&chequesRemis.filter((_,i)=>selAnnul.has(i))
                   .reduce((s,x)=>s+(Number(x.amount)||0),0)
                   .toLocaleString("fr-FR",{minimumFractionDigits:2})} €
               </td>
