@@ -2198,11 +2198,11 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
     var win=window.open("","_blank","width=800,height=700");
     if(!win)return;
     var rows=selected.map(function(s){
-      return "<tr><td>"+escHtml(s.date||"")+"</td><td>"+escHtml(s.studentName||"")+"</td><td>"+escHtml(s.parentName||"—")+"</td><td style='text-align:right;font-weight:bold'>"+escHtml(String(Number(s.amount)||0))+"</td><td style='font-family:monospace'>"+escHtml(s.ref||"")+"</td><td>"+escHtml(s.status||"")+"</td></tr>";
+      return "<tr><td>"+escHtml(s.date||"")+"</td><td>"+escHtml(s.studentName||"")+"</td><td>"+escHtml(s.parentName||"—")+"</td><td class='amt'>"+escHtml(Number(s.amount||0).toLocaleString('fr-FR',{minimumFractionDigits:2}))+" €</td><td style='font-family:monospace'>"+escHtml(s.ref||"")+"</td><td>"+escHtml(s.status||"")+"</td></tr>";
     }).join("");
     win.document.write(
       "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Remise Chèques — Institut El Faouz</title>"
-      +"<style>body{font-family:Arial,sans-serif;font-size:12px;margin:20mm 15mm}"
+      +"<style>body{font-family:Arial,sans-serif;font-size:12px;margin:15mm}"
       +"h2{color:#047857;margin-bottom:4px}h3{color:#333;margin-bottom:12px;font-weight:normal}"
       +".meta{display:flex;gap:32px;margin-bottom:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 14px}"
       +".meta span{font-weight:bold;font-size:14px;color:#047857}"
@@ -2210,9 +2210,14 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
       +"table{width:100%;border-collapse:collapse;margin-top:8px}"
       +"thead tr{background:#047857;color:white}th{padding:7px 10px;text-align:left;font-size:11px}"
       +"td{padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:11px}"
+      +".amt{text-align:right;white-space:nowrap;font-weight:bold}"
       +"tr:nth-child(even){background:#f9fafb}"
-      +".tfoot td{font-weight:bold;background:#f0fdf4;border-top:2px solid #047857;font-size:12px}"
-      +".footer{margin-top:24px;border-top:1px solid #e5e7eb;padding-top:10px;display:flex;justify-content:space-between;font-size:10px;color:#9ca3af}"
+      +".tfoot td{font-weight:bold;background:#f0fdf4;border-top:2px solid #047857;font-size:12px;white-space:nowrap}"
+      +".sign{margin-top:32px;display:flex;gap:40px}"
+      +".sign-box{flex:1;border:1px solid #d1d5db;border-radius:6px;padding:12px 16px;min-height:80px}"
+      +".sign-box p{font-size:10px;color:#6b7280;margin:0 0 8px 0;font-weight:600;text-transform:uppercase;letter-spacing:.05em}"
+      +".sign-line{border-bottom:1px solid #9ca3af;margin-top:48px}"
+      +".footer{margin-top:20px;border-top:1px solid #e5e7eb;padding-top:8px;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af}"
       +"@media print{@page{size:A4;margin:15mm}}"
       +"</style></head><body>"
       +"<h2>Institut El Faouz — Bordereau de remise de chèques</h2>"
@@ -2224,8 +2229,16 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
       +"</div>"
       +"<table><thead><tr><th>Date échéance</th><th>Élève</th><th>Parent / Resp.</th><th style='text-align:right'>Montant</th><th>N° Chèque</th><th>Statut</th></tr></thead>"
       +"<tbody>"+rows+"</tbody>"
-      +"<tfoot><tr class='tfoot'><td colspan='3'>TOTAL REMISE</td><td style='text-align:right'>"+totalEUR.toLocaleString("fr-FR",{minimumFractionDigits:2})+" €</td><td colspan='2'>"+nbCheques+" chèque(s)</td></tr></tfoot>"
+      +"<tfoot><tr class='tfoot'>"
+      +"<td colspan='3'>TOTAL REMISE</td>"
+      +"<td class='amt' style='text-align:right;white-space:nowrap'>"+totalEUR.toLocaleString("fr-FR",{minimumFractionDigits:2})+" €</td>"
+      +"<td colspan='2'>"+nbCheques+" chèque(s)</td>"
+      +"</tr></tfoot>"
       +"</table>"
+      +"<div class='sign'>"
+      +"<div class='sign-box'><p>Signature du responsable</p><div class='sign-line'></div></div>"
+      +"<div class='sign-box'><p>Cachet de l'établissement</p><div class='sign-line'></div></div>"
+      +"</div>"
       +"<div class='footer'><span>Institut El Faouz — Gestion Scolaire</span><span>Document généré le "+new Date().toLocaleString("fr-FR")+"</span></div>"
       +"</body></html>"
     );
