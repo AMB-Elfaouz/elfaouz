@@ -4125,6 +4125,7 @@ function App(){
   const [dbStatus,setDbStatus]=useState("");
   const [remoteListening,setRemoteListening]=useState(false);
   const _lastWriteId=React.useRef(null);
+  const _lastLocalWriteTime=React.useRef(0); // timestamp ms de la dernière sauvegarde locale
 
   const [fbReady,setFbReady]=useState(false); // true quand Firebase Auth est confirmé connecté
 
@@ -4191,9 +4192,12 @@ function App(){
     if(!fbReady||!DB.isConfigured())return;
     console.log("🔥 Listener Firestore démarré");
     const unsub=DB.listen((remoteData)=>{
-      // Ignorer le snapshot de NOTRE propre écriture (eviter boucle)
+      // Ignorer le snapshot de NOTRE propre écriture (ID exact)
       if(remoteData._writeId&&remoteData._writeId===_lastWriteId.current)return;
-      // Ecriture d'un autre utilisateur → appliquer immédiatement
+      // Ignorer tout snapshot reçu dans les 4s après une écriture locale
+      // (évite la race condition : snapshot Firebase arrive pendant/après notre sauvegarde)
+      if(Date.now()-_lastLocalWriteTime.current<4000)return;
+      // Écriture d'un autre utilisateur → appliquer
       console.log("📡 Mise à jour reçue d'un autre utilisateur");
       applyData(remoteData);
       setDbStatus("🔄 Mis à jour en temps réel");
@@ -4229,6 +4233,7 @@ function App(){
       if(enrollmentsChanged||classesChanged||studentsChanged||accountsChanged){
         clearTimeout(saveTimer.current);
         const wid=uid();_lastWriteId.current=wid;
+        _lastLocalWriteTime.current=Date.now(); // marquer le moment de l'écriture locale
         setDbStatus("⬆️ Sync…");
         DB.save(allData,wid).then(ok=>{
           setDbStatus(ok?"✅ Synchronisé":"⚠️ Erreur sauvegarde");
@@ -4239,6 +4244,7 @@ function App(){
       clearTimeout(saveTimer.current);
       saveTimer.current=setTimeout(async()=>{
         const wid=uid();_lastWriteId.current=wid;
+        _lastLocalWriteTime.current=Date.now();
         setDbStatus("⬆️ Sauvegarde…");
         const ok=await DB.save(allData,wid);
         setDbStatus(ok?"✅ Synchronisé":"⚠️ Erreur sauvegarde");
