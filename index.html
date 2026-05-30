@@ -1938,10 +1938,10 @@ function PaymentsPage({D,set}){
     const np=Math.max(0,i.paid-r.amount);
     // Marquer "Rejeté" l'échéance correspondante (matching par ref chèque + montant)
     const newSchedule=(i.schedule||[]).map(sch=>{
+      // Matching rejet : N° chèque (ref) suffit — unique par facture
       const refMatch=r.chequeRef&&sch.ref&&sch.ref.trim()===r.chequeRef.trim();
-      const amtMatch=Math.abs((Number(sch.amount)||0)-(Number(r.amount)||0))<0.01;
       const alreadyRemis=sch.status==="Remis à l'encaissement";
-      if(refMatch&&amtMatch&&alreadyRemis)return{...sch,status:"Rejeté"};
+      if(refMatch&&alreadyRemis)return{...sch,status:"Rejeté"};
       return sch;
     });
     return{...i,paid:np,status:np>0?"Partiellement payée":"Impayée",
@@ -2109,11 +2109,12 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
       +"Le statut passera à \"Remis à l'encaissement\" pour chaque chèque sélectionné."
     );
     if(!confirmed)return;
-    // Construire un Set de clés de rapprochement : "invoiceId|ref|amount"
-    const keys=new Set(selected.map(s=>s.invoiceId+"|"+s.ref+"|"+String(Number(s.amount)||0)));
+    // Clé de rapprochement : invoiceId|date — la date est l'unique discriminant
+    // entre deux échéances d'une même facture. ref et amount peuvent être identiques.
+    const keys=new Set(selected.map(s=>s.invoiceId+"|"+s.date));
     setInvoices(prev=>prev.map(inv=>{
       const newSchedule=(inv.schedule||[]).map(sch=>{
-        const k=inv.id+"|"+sch.ref+"|"+String(Number(sch.amount)||0);
+        const k=inv.id+"|"+sch.date;
         if(keys.has(k)&&sch.status==="À venir")return{...sch,status:"Remis à l'encaissement"};
         return sch;
       });
