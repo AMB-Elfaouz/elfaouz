@@ -2077,10 +2077,13 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
   // Tous les chèques de l'échéancier (mode Chèque uniquement)
   const allCheques=allSchedules.filter(s=>s.method==="Chèque");
 
-  // Auto-sélection : dès que la date change, sélectionner tous les chèques <= dateRemise
+  // Auto-sélection : dès que la date change, sélectionner les chèques "À venir" <= dateRemise
+  // On exclut intentionnellement ceux déjà "Remis à l'encaissement" ou "Rejeté"
   React.useEffect(()=>{
     const autoSel=new Set();
-    allCheques.forEach((s,i)=>{if(s.date&&s.date<=dateRemise)autoSel.add(i);});
+    allCheques.forEach((s,i)=>{
+      if(s.date&&s.date<=dateRemise&&s.status==="À venir")autoSel.add(i);
+    });
     setSelRemise(autoSel);
     setRemisePrinted(false);
   },[dateRemise,allSchedules]);
@@ -2122,6 +2125,36 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
     }));
     setRemisePrinted(true);
     alert("✅ "+nbCheques+" chèque(s) marqué(s) \"Remis à l'encaissement\".");
+  }
+
+  // Chèques actuellement "Remis à l'encaissement" — pour le panneau d'annulation
+  const chequesRemis=allCheques.filter(s=>s.status==="Remis à l'encaissement");
+  const totalRemis=chequesRemis.reduce((s,x)=>s+(Number(x.amount)||0),0);
+
+  // Annuler une remise : repasse les chèques sélectionnés de "Remis à l'encaissement" → "À venir"
+  const [selAnnul,setSelAnnul]=useState(new Set());
+  const toggleAnnul=i=>setSelAnnul(prev=>{const n=new Set(prev);n.has(i)?n.delete(i):n.add(i);return n;});
+  const toggleAllAnnul=()=>setSelAnnul(prev=>prev.size===chequesRemis.length?new Set():new Set(chequesRemis.map((_,i)=>i)));
+  const selectedAnnul=chequesRemis.filter((_,i)=>selAnnul.has(i));
+
+  function annulerRemise(){
+    if(selectedAnnul.length===0){alert("Sélectionnez au moins un chèque à annuler.");return;}
+    const confirmed=window.confirm(
+      "Annuler la remise de "+selectedAnnul.length+" chèque(s) ?\n\n"
+      +"Leur statut repassera à \"À venir\"."
+    );
+    if(!confirmed)return;
+    const keys=new Set(selectedAnnul.map(s=>s.invoiceId+"|"+s.date));
+    setInvoices(prev=>prev.map(inv=>{
+      const newSchedule=(inv.schedule||[]).map(sch=>{
+        const k=inv.id+"|"+sch.date;
+        if(keys.has(k)&&sch.status==="Remis à l'encaissement")return{...sch,status:"À venir"};
+        return sch;
+      });
+      return{...inv,schedule:newSchedule};
+    }));
+    setSelAnnul(new Set());
+    alert("↩️ "+selectedAnnul.length+" chèque(s) remis au statut \"À venir\".");
   }
 
   // Export CSV de la remise
@@ -2294,6 +2327,71 @@ function RemiseChequePanel({allSchedules,dateRemise,setDateRemise,selRemise,setS
         </table>
       </div>
     }
+
+    {/* ── Panneau annulation remise ─────────────────────────────────── */}
+    {chequesRemis.length>0&&<div className="mt-6 border border-amber-200 rounded-xl overflow-hidden">
+      <div className="bg-amber-50 px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <p className="font-semibold text-amber-900 text-sm">↩️ Annuler une remise</p>
+          <p className="text-xs text-amber-700 mt-0.5">
+            {chequesRemis.length} chèque(s) actuellement remis à l'encaissement
+            {" · "}<strong>{totalRemis.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</strong>
+          </p>
+        </div>
+        {selectedAnnul.size>0&&<Btn onClick={annulerRemise} variant="warning">
+          ↩️ Remettre {selectedAnnul.size} chèque(s) à "À venir"
+        </Btn>}
+      </div>
+      <div className="bg-white overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-amber-100 border-b border-amber-200">
+              <th className="px-4 py-2.5 text-left">
+                <input type="checkbox"
+                  checked={selAnnul.size===chequesRemis.length&&chequesRemis.length>0}
+                  onChange={toggleAllAnnul} className="w-4 h-4 cursor-pointer accent-amber-700"/>
+              </th>
+              <th className="px-4 py-2.5 text-left font-semibold text-amber-900 text-xs">Date échéance</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-amber-900 text-xs">Élève</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-amber-900 text-xs">Parent</th>
+              <th className="px-4 py-2.5 text-right font-semibold text-amber-900 text-xs">Montant</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-amber-900 text-xs">N° Chèque</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {chequesRemis.map((sch,i)=>{
+              const isSel=selAnnul.has(i);
+              return <tr key={i} onClick={()=>toggleAnnul(i)}
+                className={`cursor-pointer transition-colors ${isSel?"bg-amber-50 hover:bg-amber-100":"hover:bg-gray-50"}`}>
+                <td className="px-4 py-2.5" onClick={e=>{e.stopPropagation();toggleAnnul(i);}}>
+                  <input type="checkbox" checked={isSel} onChange={()=>toggleAnnul(i)}
+                    className="w-4 h-4 accent-amber-700 cursor-pointer"/>
+                </td>
+                <td className="px-4 py-2.5 font-medium text-sm">{sch.date}</td>
+                <td className="px-4 py-2.5 text-sm">{sch.studentName}</td>
+                <td className="px-4 py-2.5 text-xs text-gray-500">{sch.parentName||"—"}</td>
+                <td className="px-4 py-2.5 text-right font-bold">{(Number(sch.amount)||0).toLocaleString("fr-FR",{minimumFractionDigits:2})} €</td>
+                <td className="px-4 py-2.5 font-mono text-xs">{sch.ref||<span className="text-gray-300 italic">—</span>}</td>
+              </tr>;
+            })}
+          </tbody>
+          {selectedAnnul.size>0&&<tfoot>
+            <tr className="bg-amber-100 font-bold">
+              <td colSpan={4} className="px-4 py-2.5 text-xs text-amber-900">
+                {selectedAnnul.size} chèque(s) sélectionné(s)
+              </td>
+              <td className="px-4 py-2.5 text-right text-amber-900">
+                {selectedAnnul.size>0&&chequesRemis.filter((_,i)=>selAnnul.has(i))
+                  .reduce((s,x)=>s+(Number(x.amount)||0),0)
+                  .toLocaleString("fr-FR",{minimumFractionDigits:2})} €
+              </td>
+              <td/>
+            </tr>
+          </tfoot>}
+        </table>
+      </div>
+    </div>}
+
   </div>;
 }
 
