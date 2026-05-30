@@ -208,6 +208,10 @@ const PIE_COLORS=["#047857","#d97706","#2563eb","#7c3aed","#dc2626","#ea580c"];
 const uid=()=>Math.random().toString(36).slice(2,10);
 const today=()=>new Date().toISOString().slice(0,10);
 const LS={get:(k,fb)=>{try{const v=localStorage.getItem("ef_"+k);return v?JSON.parse(v):fb}catch{return fb}},set:(k,d)=>{try{localStorage.setItem("ef_"+k,JSON.stringify(d))}catch(e){console.error(e)}}};
+// Normalisation robuste pour comparaisons liste rouge (trim + lowercase + espaces multiples)
+const norm=s=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
+// Vérifie si un objet {nom,prenom,dob} correspond à une entrée de la liste rouge
+const checkRedlist=(redlist,nom,prenom,dob)=>!!redlist&&redlist.some(r=>r.nom&&r.prenom&&r.dob&&norm(r.nom)===norm(nom)&&norm(r.prenom)===norm(prenom)&&r.dob===dob);
 
 /*═══════════════════════════════════════════════════════════════
   FIREBASE DB — Base partagée (Firestore gratuit)
@@ -962,7 +966,7 @@ function InscriptionsPage({D,set}){
   const [search,setSearch]=useState("");const [showNew,setShowNew]=useState(false);const [showImport,setShowImport]=useState(false);const [detail,setDetail]=useState(null);const [editStudent,setEditStudent]=useState(null);const [filterS,setFilterS]=useState("all");const [selectedIds,setSelectedIds]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
   const enriched=useMemo(()=>students.map(s=>{
     const enrs=enrollments.filter(e=>e.studentId===s.id);const cls=enrs.map(e=>classes.find(c=>c.id===e.classId)).filter(Boolean);
-    const isRed=redlist.some(r=>r.nom&&r.prenom&&r.dob?r.nom.toLowerCase()===s.nom.toLowerCase()&&r.prenom.toLowerCase()===s.prenom?.toLowerCase()&&r.dob===s.dob:false);
+    const isRed=checkRedlist(redlist,s.nom,s.prenom,s.dob);
     const isTeacher=teachers.some(t=>t.studentId===s.id);
     return {...s,enrollments:enrs,classes:cls,isRedlisted:isRed,isTeacher};
   }),[students,enrollments,classes,redlist,teachers]);
@@ -973,8 +977,8 @@ function InscriptionsPage({D,set}){
 
   function handleNewInscription(form){
     // CHECK RED LIST — block non-admin, warn admin
-    const isRed=redlist.some(r=>r.nom&&r.prenom&&r.dob?r.nom.toLowerCase()===form.nom.toLowerCase()&&r.prenom.toLowerCase()===form.prenom.toLowerCase()&&r.dob===form.dob:false);
-    if(isRed&&user.role!=="admin"){alert("INSCRIPTION BLOQUEE - Cet eleve est en LISTE ROUGE. Seul le directeur peut inscrire.");return}
+    const isRed=checkRedlist(redlist,form.nom,form.prenom,form.dob);
+    if(isRed&&user.role!=="admin"){alert("INSCRIPTION BLOQUÉE - Cet élève est en LISTE ROUGE. Seul le directeur peut inscrire.");return}
     // CHECK QUOTAS — vérifier en temps réel avant d'inscrire
     const fullClasses=form.selectedClasses.map(cid=>classes.find(c=>c.id===cid)).filter(cl=>cl&&cl.enrolled>=cl.quota);
     if(fullClasses.length>0){
@@ -1081,11 +1085,11 @@ function InscriptionsPage({D,set}){
   }
 
   function changeStatus(eid,status){
-    if(status==="Inscription acceptée"&&user.role==="benevole"){
+    if(status==="Inscription acceptée"&&user.role!=="admin"){
       const enr=enrollments.find(e=>e.id===eid);if(enr){
         const st=students.find(s=>s.id===enr.studentId);
-        if(st){const isRed=redlist.some(r=>r.nom&&r.prenom&&r.dob&&r.nom.toLowerCase()===st.nom.toLowerCase()&&r.prenom.toLowerCase()===st.prenom?.toLowerCase()&&r.dob===st.dob);
-          if(isRed){alert("LISTE ROUGE - Vous ne pouvez pas valider cette inscription. Contactez le directeur ou le secretariat.");return}}}}
+        if(st&&checkRedlist(redlist,st.nom,st.prenom,st.dob)){
+          alert("LISTE ROUGE — Vous ne pouvez pas valider cette inscription. Contactez le directeur.");return}}}
     // Vérifier le quota AVANT d'accepter — protection contre les inscriptions simultanées
     if(status==="Inscription acceptée"){
       const enr=enrollments.find(e=>e.id===eid);
@@ -1743,17 +1747,18 @@ function NewInscriptionForm({classes,students,subjects,tarifs,remises,redlist,us
   const toggleClass=(cid)=>sF(p=>({...p,selectedClasses:p.selectedClasses.includes(cid)?p.selectedClasses.filter(x=>x!==cid):[...p.selectedClasses,cid]}));
   const toggleExtra=(key)=>sF(p=>({...p,selectedExtras:p.selectedExtras.includes(key)?p.selectedExtras.filter(x=>x!==key):[...p.selectedExtras,key]}));
   const toggleRemise=(rid)=>sF(p=>({...p,selectedRemises:p.selectedRemises.includes(rid)?p.selectedRemises.filter(x=>x!==rid):[...p.selectedRemises,rid]}));
-  const isRedlisted=f.nom&&f.prenom&&f.dob&&(redlist||[]).some(r=>r.nom&&r.prenom&&r.dob&&r.nom.toLowerCase()===f.nom.toLowerCase()&&r.prenom.toLowerCase()===f.prenom.toLowerCase()&&r.dob===f.dob);
+  const isRedlisted=f.nom&&f.prenom&&f.dob&&checkRedlist(redlist,f.nom,f.prenom,f.dob);
   const isAdmin=user?.role==="admin";
   const isBenevole=user?.role==="benevole";
+  // Seul l'admin peut soumettre si l'élève est en liste rouge
   const canSubmit=f.prenom&&f.nom&&f.selectedClasses.length>0&&(!isRedlisted||isAdmin);
   // ── Détection fratrie en temps réel ───────────────────────────────────────
   const fratrie=detectFratrie(f,students||[]);
   const fratrieFamilleRemise=getFamilleRemise(fratrie.length,remises);
   const [redAlerted,setRedAlerted]=useState(false);
   useEffect(()=>{if(isRedlisted&&!redAlerted){setRedAlerted(true);
-    if(!isAdmin)alert("LISTE ROUGE\n\n"+f.prenom+" "+f.nom+" est en liste rouge.\nInscription bloquee. Contactez le directeur.");
-    else alert("ATTENTION - LISTE ROUGE\n\n"+f.prenom+" "+f.nom+" est signale en liste rouge.\nVous pouvez forcer l inscription en tant que directeur.")}
+    if(!isAdmin)alert("LISTE ROUGE\n\n"+f.prenom+" "+f.nom+" est en liste rouge.\nInscription bloquée. Contactez le directeur.");
+    else alert("ATTENTION - LISTE ROUGE\n\n"+f.prenom+" "+f.nom+" est signalé en liste rouge.\nVous pouvez forcer l'inscription en tant que directeur.")}
     if(!isRedlisted)setRedAlerted(false)},[isRedlisted]);
   const avail=classes.filter(c=>c.enrolled<c.quota);
   const grouped={};avail.forEach(c=>{if(!grouped[c.matiere])grouped[c.matiere]=[];grouped[c.matiere].push(c)});
