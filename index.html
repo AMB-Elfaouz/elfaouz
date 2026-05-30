@@ -1606,8 +1606,14 @@ function ImportStudents({D,set,onDone}){
     }
   }
 
-  function doImport(){let count=0;
+  function doImport(){
+    const rl=D.redlist||[];const existingStudents=D.students||[];
+    let count=0;const blocked=[];const duplicates=[];
     preview.forEach(r=>{if(!r.prenom||!r.nom)return;
+      // GARDE LISTE ROUGE — bloque tout rôle non-admin
+      if(D.user.role!=="admin"&&checkRedlist(rl,r.nom,r.prenom,r.dob)){blocked.push(r.prenom+" "+r.nom);return}
+      // GARDE DOUBLON — même nom+prénom+dob déjà dans la base
+      if(existingStudents.some(s=>norm(s.nom)===norm(r.nom)&&norm(s.prenom)===norm(r.prenom)&&s.dob===r.dob)){duplicates.push(r.prenom+" "+r.nom);return}
       const sid=uid();
       set.setStudents(p=>[...p,{id:sid,prenom:r.prenom,nom:r.nom,dob:r.dob,genre:r.genre,email:r.email,tel:r.tel,adresse:r.adresse,cp:r.cp,ville:r.ville,ine:"",rep1:{type:r.rep1Type||"Tuteur",nom:r.rep1Nom||"",prenom:r.rep1Prenom||""},rep2:{},status:"Actif",createdAt:today()}]);
       (r.classes||[]).forEach(cls=>{
@@ -1616,7 +1622,16 @@ function ImportStudents({D,set,onDone}){
         if(cl){set.setEnrollments(p=>[...p,{id:uid(),studentId:sid,classId:cl.id,status:"Préinscription",date:today()}])}
       });
       count++;});
-    setImported(count);alert(`${count} élève(s) importé(s) !`)}
+    let msg=`${count} élève(s) importé(s) !`;
+    if(blocked.length>0)msg+=`
+
+🚫 ${blocked.length} élève(s) BLOQUÉ(S) — liste rouge :
+`+blocked.join(", ");
+    if(duplicates.length>0)msg+=`
+
+⚠️ ${duplicates.length} doublon(s) ignoré(s) :
+`+duplicates.join(", ");
+    setImported(count);alert(msg)}
 
   const totalClasses=preview.reduce((s,r)=>s+(r.classes||[]).length,0);
 
