@@ -1106,6 +1106,7 @@ function InscriptionsPage({D,set}){
       }
     }
     set.setEnrollments(p=>p.map(e=>e.id!==eid?e:{...e,status}));
+    setFilterS("all"); // remettre sur Tous après changement de statut — évite la disparition de l'élève
     if(status==="Inscription acceptée"){
       const enr=enrollments.find(e=>e.id===eid);if(!enr)return;
       set.setClasses(p=>p.map(c=>c.id===enr.classId?{...c,enrolled:c.enrolled+1}:c));
