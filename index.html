@@ -1924,7 +1924,8 @@ function PaymentsPage({D,set}){
   function printDoc(inv,type){setPrintM({inv,type})}
   // Collect all schedule items across invoices for the Échéancier view
   const allSchedules=[];invoices.forEach(inv=>{const st=students.find(s=>s.id===inv.studentId);
-    (inv.schedule||[]).forEach(sch=>{allSchedules.push({...sch,invoiceId:inv.id,studentName:st?`${st.prenom} ${st.nom}`:"—"})})});
+    const parentName=st&&st.rep1&&st.rep1.nom?`${st.rep1.prenom||""} ${st.rep1.nom}`.trim():"—";
+    (inv.schedule||[]).forEach(sch=>{allSchedules.push({...sch,invoiceId:inv.id,studentName:st?`${st.prenom} ${st.nom}`:"—",parentName})})});
   allSchedules.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
 
   function pay(invId,p){set.setInvoices(prev=>prev.map(i=>{if(i.id!==invId)return i;const np=i.paid+p.amount;
@@ -1933,40 +1934,32 @@ function PaymentsPage({D,set}){
     return{...i,paid:np,status:np>0?"Partiellement payée":"Impayée",payments:[...(i.payments||[]),{...r,amount:-r.amount,method:"REJET: "+r.method}]}}));setRejM(null)}
   function saveSchedule(invId,schedule){set.setInvoices(prev=>prev.map(i=>i.id===invId?{...i,schedule}:i));setSchedM(null)}
 
-  // Export Excel de l'échéancier via SheetJS (CDN chargé dynamiquement)
-  async function exportEcheancierExcel(){
+  // Export CSV UTF-8 BOM — compatible Excel, LibreOffice, Numbers
+  function exportEcheancierExcel(){
     try{
-      // Charger SheetJS dynamiquement si pas encore chargé
-      if(!window.XLSX){
-        await new Promise((res,rej)=>{
-          const s=document.createElement("script");
-          s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-          s.onload=res;s.onerror=rej;document.head.appendChild(s);
-        });
-      }
-      const XLSX=window.XLSX;
-      const rows=allSchedules.map(sch=>({
-        "Date encaissement":String(sch.date||""),
-        "Eleve":String(sch.studentName||""),
-        "Montant EUR":Number(sch.amount)||0,
-        "Mode reglement":String(sch.method||"-"),
-        "No cheque Ref":String(sch.ref||"-"),
-        "Statut":String(sch.status||""),
-      }));
-      const ws=XLSX.utils.json_to_sheet(rows);
-      // Largeurs colonnes
-      ws["!cols"]=[{wch:18},{wch:28},{wch:14},{wch:20},{wch:22},{wch:14}];
-      const wb=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb,"Echeancier",ws);
-      // Téléchargement via Blob (plus robuste que writeFile selon les navigateurs)
-      const wbout=XLSX.write(wb,{bookType:"xlsx",type:"array"});
-      const blob=new Blob([wbout],{type:"application/octet-stream"});
+      const sep=";";
+      const esc=v=>{const s=String(v==null?"":v);return s.includes(sep)||s.includes('"')||s.includes("\n")?'"'+s.replace(/"/g,'""')+'"':s;};
+      const headers=["Date échéance","Montant (€)","N° chèque / Réf.","Nom élève","Nom parent","Mode","Statut"];
+      const lines=[headers.map(esc).join(sep)];
+      allSchedules.forEach(sch=>{
+        lines.push([
+          esc(sch.date||""),
+          esc(sch.amount!=null?String(sch.amount).replace(".",","):"0"),
+          esc(sch.ref||"—"),
+          esc(sch.studentName||"—"),
+          esc(sch.parentName||"—"),
+          esc(sch.method||"—"),
+          esc(sch.status||""),
+        ].join(sep));
+      });
+      const bom="\uFEFF";
+      const blob=new Blob([bom+lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
       const url=URL.createObjectURL(blob);
       const a=document.createElement("a");
-      a.href=url;a.download="Echeancier_ElFaouz_"+today()+".xlsx";
+      a.href=url;a.download="Echeancier_ElFaouz_"+today()+".csv";
       document.body.appendChild(a);a.click();
       setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a);},1000);
-    }catch(e){alert("Erreur export Excel : "+e.message);}
+    }catch(e){alert("Erreur export : "+e.message);}
   }
 
   return <div className="space-y-5">
