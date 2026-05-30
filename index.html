@@ -979,6 +979,9 @@ function InscriptionsPage({D,set}){
     // CHECK RED LIST — block non-admin, warn admin
     const isRed=checkRedlist(redlist,form.nom,form.prenom,form.dob);
     if(isRed&&user.role!=="admin"){alert("INSCRIPTION BLOQUÉE - Cet élève est en LISTE ROUGE. Seul le directeur peut inscrire.");return}
+    // GARDE DOUBLON — impossible de créer deux fois le même élève (nom+prenom+dob)
+    const alreadyExists=students.some(s=>norm(s.nom)===norm(form.nom)&&norm(s.prenom)===norm(form.prenom)&&s.dob===form.dob);
+    if(alreadyExists){alert("DOUBLON BLOQUÉ — "+form.prenom+" "+form.nom+" (né(e) le "+form.dob+") est déjà enregistré(e) dans la base.");return}
     // CHECK QUOTAS — vérifier en temps réel avant d'inscrire
     const fullClasses=form.selectedClasses.map(cid=>classes.find(c=>c.id===cid)).filter(cl=>cl&&cl.enrolled>=cl.quota);
     if(fullClasses.length>0){
@@ -1751,7 +1754,10 @@ function NewInscriptionForm({classes,students,subjects,tarifs,remises,redlist,us
   const isAdmin=user?.role==="admin";
   const isBenevole=user?.role==="benevole";
   // Seul l'admin peut soumettre si l'élève est en liste rouge
-  const canSubmit=f.prenom&&f.nom&&f.selectedClasses.length>0&&(!isRedlisted||isAdmin);
+  // Doublon : meme nom+prenom+dob deja dans la base (normalise)
+  const isDuplicate=!!(f.nom&&f.prenom&&f.dob&&(students||[]).some(s=>norm(s.nom)===norm(f.nom)&&norm(s.prenom)===norm(f.prenom)&&s.dob===f.dob));
+  // dob obligatoire : sans lui la verification liste rouge est inoperante
+  const canSubmit=!!(f.prenom&&f.nom&&f.dob&&f.selectedClasses.length>0&&!isDuplicate&&(!isRedlisted||isAdmin));
   // ── Détection fratrie en temps réel ───────────────────────────────────────
   const fratrie=detectFratrie(f,students||[]);
   const fratrieFamilleRemise=getFamilleRemise(fratrie.length,remises);
@@ -1799,7 +1805,9 @@ function NewInscriptionForm({classes,students,subjects,tarifs,remises,redlist,us
     <p className="text-xs text-gray-500 font-medium uppercase">Informations élève</p>
     <div className="grid grid-cols-3 gap-3"><Inp label="Prénom *" value={f.prenom} onChange={e=>u("prenom",e.target.value)}/><Inp label="Nom *" value={f.nom} onChange={e=>u("nom",e.target.value)}/><Inp label="Date de naissance *" type="date" value={f.dob} onChange={e=>u("dob",e.target.value)}/></div>
     {isRedlisted&&<div className={`p-3 border-2 rounded-lg text-sm font-bold flex items-center gap-2 ${isAdmin?"bg-orange-100 border-orange-500 text-orange-800":"bg-red-100 border-red-500 text-red-800"}`}>
-      {isAdmin?<span>LISTE ROUGE - {f.prenom} {f.nom} est signale. Vous pouvez forcer.</span>:<span>LISTE ROUGE - {f.prenom} {f.nom} est bloque. Seul le directeur peut inscrire.</span>}</div>}
+      {isAdmin?<span>LISTE ROUGE - {f.prenom} {f.nom} est signalé. Vous pouvez forcer.</span>:<span>LISTE ROUGE - {f.prenom} {f.nom} est bloqué. Seul le directeur peut inscrire.</span>}</div>}
+    {isDuplicate&&<div className="p-3 border-2 border-amber-500 bg-amber-50 rounded-lg text-sm font-bold text-amber-800 flex items-center gap-2">
+      ⚠️ {f.prenom} {f.nom} (né(e) le {f.dob}) est déjà enregistré(e) dans la base. Doublon bloqué.</div>}
     {/* ── Bannière Fratrie ── */}
     {fratrie.length>0&&<div className="p-3 rounded-xl border-2 border-blue-400 bg-blue-50 space-y-1.5">
       <div className="flex items-center gap-2 font-semibold text-blue-800 text-sm">
