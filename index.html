@@ -992,7 +992,7 @@ function InscriptionsPage({D,set}){
     // Détection fratrie avant d'ajouter l'élève (students ne le contient pas encore)
     const fratrieNew=detectFratrie({id:form.id,nom:form.nom,rep1:form.rep1||{},adresse:form.adresse,cp:form.cp},students);
     const st={id:form.id,prenom:form.prenom,nom:form.nom,dob:form.dob,genre:form.genre,adresse:form.adresse,cp:form.cp,ville:form.ville,email:form.email,tel:form.tel,ine:form.ine,rep1:form.rep1,rep2:form.rep2||{},status:"Actif",createdAt:today()};
-    set.setStudents(p=>[...p,st]);
+    set.setStudents(p=>[st,...p]); // nouvel élève en tête de liste
     // Create enrollments for each selected class
     // Pré-générer les IDs d'inscription pour les référencer dans la facture
     const newEnrs=form.selectedClasses.map(cid=>({id:uid(),studentId:form.id,classId:cid,status:"Préinscription",date:today()}));
@@ -1615,7 +1615,7 @@ function ImportStudents({D,set,onDone}){
       // GARDE DOUBLON — même nom+prénom+dob déjà dans la base
       if(existingStudents.some(s=>norm(s.nom)===norm(r.nom)&&norm(s.prenom)===norm(r.prenom)&&s.dob===r.dob)){duplicates.push(r.prenom+" "+r.nom);return}
       const sid=uid();
-      set.setStudents(p=>[...p,{id:sid,prenom:r.prenom,nom:r.nom,dob:r.dob,genre:r.genre,email:r.email,tel:r.tel,adresse:r.adresse,cp:r.cp,ville:r.ville,ine:"",rep1:{type:r.rep1Type||"Tuteur",nom:r.rep1Nom||"",prenom:r.rep1Prenom||""},rep2:{},status:"Actif",createdAt:today()}]);
+      set.setStudents(p=>[{id:sid,prenom:r.prenom,nom:r.nom,dob:r.dob,genre:r.genre,email:r.email,tel:r.tel,adresse:r.adresse,cp:r.cp,ville:r.ville,ine:"",rep1:{type:r.rep1Type||"Tuteur",nom:r.rep1Nom||"",prenom:r.rep1Prenom||""},rep2:{},status:"Actif",createdAt:today()}]);
       (r.classes||[]).forEach(cls=>{
         if(!cls)return;
         const cl=classes.find(c=>c.label.toLowerCase()===cls.toLowerCase()||c.code.toLowerCase()===cls.toLowerCase()||c.label.toLowerCase().includes(cls.toLowerCase()));
